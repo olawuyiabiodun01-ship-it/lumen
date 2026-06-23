@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lumen — your German practice buddy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  :root{
+    --bg: #060710;
+    --bg-deep: #03040a;
+    --panel: #0E1020;
+    --panel-edge: rgba(255,255,255,0.07);
+    --text: #ECEAF6;
+    --text-dim: #8C8AA6;
+    --violet: #7C6CF0;
+    --cyan: #3FE0E8;
+    --pink: #FF7AD9;
+    --amber: #FFC773;
+    --core-color: var(--violet);
+    --radius: 18px;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin:0; padding:0; height:100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+  }
+
+  body{
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.5) 0, transparent 40%),
+      radial-gradient(1px 1px at 70% 20%, rgba(255,255,255,0.4) 0, transparent 40%),
+      radial-gradient(1px 1px at 40% 80%, rgba(255,255,255,0.35) 0, transparent 40%),
+      radial-gradient(1px 1px at 85% 65%, rgba(255,255,255,0.4) 0, transparent 40%),
+      radial-gradient(1px 1px at 10% 60%, rgba(255,255,255,0.3) 0, transparent 40%),
+      radial-gradient(ellipse at 50% -10%, rgba(124,108,240,0.18), transparent 60%),
+      var(--bg-deep);
+    background-repeat: no-repeat;
+  }
+
+  .app, .login-screen{
+    max-width: 480px;
+    margin: 0 auto;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding: 18px 16px 14px;
+  }
+  .app[hidden], .login-screen[hidden]{ display:none; }
+
+  .login-screen{ align-items:center; justify-content:center; text-align:center; }
+  .login-card{
+    width:100%;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: var(--radius);
+    padding: 28px 24px;
+  }
+  .login-copy{ color: var(--text-dim); font-size: 13.5px; margin: 8px 0 18px; line-height:1.5; }
+  #loginEmail{
+    width:100%;
+    height: 42px;
+    border-radius: 999px;
+    border: 1px solid var(--panel-edge);
+    background: var(--bg);
+    color: var(--text);
+    padding: 0 16px;
+    font-family:'Inter', sans-serif;
+    font-size: 14.5px;
+    margin-bottom: 10px;
+  }
+  #loginBtn{
+    width:100%;
+    height: 42px;
+    border-radius: 999px;
+    border: none;
+    background: var(--cyan);
+    color: var(--bg-deep);
+    font-family:'Space Grotesk', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    cursor:pointer;
+  }
+  #loginBtn:disabled{ opacity: 0.5; cursor:not-allowed; }
+  .login-status{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-top: 14px;
+    min-height: 14px;
+  }
+
+  header{
+    display:flex;
+    align-items:flex-end;
+    justify-content: space-between;
+    padding-bottom: 10px;
+  }
+  .eyebrow{
+    display:block;
+    font-family:'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  h1{
+    margin:0;
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size: 28px;
+    letter-spacing: 0.02em;
+  }
+
+  .header-right{
+    display:flex;
+    flex-direction: column;
+    align-items:flex-end;
+    gap: 5px;
+  }
+  .lang-toggle{
+    display:flex;
+    border: 1px solid var(--panel-edge);
+    border-radius: 999px;
+    overflow:hidden;
+    background: var(--panel);
+  }
+  .lang-btn{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    border:none;
+    background: transparent;
+    color: var(--text-dim);
+    padding: 7px 14px;
+    cursor:pointer;
+    transition: color .2s, background .2s;
+  }
+  .lang-btn.active{
+    color: var(--bg-deep);
+    background: var(--cyan);
+  }
+  .mic-lang-caption{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .text-link-row{ display:flex; gap:10px; }
+  .reset-link{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    background:none;
+    border:none;
+    text-decoration: underline;
+    text-decoration-color: rgba(140,138,166,0.4);
+    cursor:pointer;
+    padding: 0;
+  }
+  .reset-link:hover{ color: var(--text); }
+
+  .lang-btn:focus-visible, .mic-btn:focus-visible, .send-btn:focus-visible, .wake-overlay:focus-visible,
+  #textInput:focus-visible, .reset-link:focus-visible, #loginBtn:focus-visible, #loginEmail:focus-visible{
+    outline: 2px solid var(--cyan);
+    outline-offset: 2px;
+  }
+
+  .stage{
+    display:flex;
+    flex-direction: column;
+    align-items:center;
+    justify-content:center;
+    padding: 8px 0 6px;
+    flex-shrink: 0;
+  }
+
+  .core-wrap{
+    position: relative;
+    width: 184px;
+    height: 184px;
+  }
+
+  .core-svg{
+    width:100%;
+    height:100%;
+    transition: filter .5s ease;
+    filter: hue-rotate(0deg) saturate(1);
+  }
+
+  .halo{ fill: url(#haloGrad); }
+  .ring{
+    fill:none;
+    stroke: var(--core-color);
+    stroke-width: 1.2;
+    opacity: 0.55;
+    transform-origin: 120px 120px;
+    animation: spin 22s linear infinite;
+  }
+  .blob{
+    fill: url(#blobGrad);
+    filter: url(#softBlur);
+    transform-origin: 120px 120px;
+    animation: breathe 4.2s ease-in-out infinite;
+  }
+  .blob.pulse{
+    animation: kick .2s ease-out;
+  }
+  .particles circle{ fill: var(--core-color); opacity:0.8; }
+  .particles{
+    transform-origin: 120px 120px;
+    animation: spin 14s linear infinite reverse;
+  }
+
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  @keyframes breathe{
+    0%,100%{ transform: scale(1); }
+    50%{ transform: scale(1.045); }
+  }
+  @keyframes kick{
+    0%{ transform: scale(1); }
+    35%{ transform: scale(1.12); }
+    100%{ transform: scale(1); }
+  }
+
+  #app[data-status="listening"] .core-svg{ filter: hue-rotate(135deg) saturate(1.35); }
+  #app[data-status="listening"] .blob{ animation: breathe 1.4s ease-in-out infinite; }
+  #app[data-status="thinking"] .core-svg{ filter: hue-rotate(70deg) saturate(0.85); }
+  #app[data-status="thinking"] .blob{ animation: breathe 0.9s ease-in-out infinite; }
+  #app[data-status="speaking"] .core-svg{ filter: hue-rotate(-28deg) saturate(1.45); }
+  #app[data-status="speaking"] .blob{ animation: breathe 0.6s ease-in-out infinite; }
+
+  .wake-overlay{
+    position:absolute; inset:0;
+    border-radius: 50%;
+    background: rgba(3,4,10,0.45);
+    border: 1px dashed var(--panel-edge);
+    color: var(--text);
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    cursor:pointer;
+    backdrop-filter: blur(1px);
+  }
+  .wake-overlay[hidden]{ display:none; }
+
+  .status{
+    margin: 12px 0 0;
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    min-height: 16px;
+  }
+
+  .transcript{
+    flex: 1 1 auto;
+    overflow-y: auto;
+    margin: 12px 0;
+    padding: 14px;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: var(--radius);
+    display:flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg{
+    max-width: 86%;
+    padding: 9px 13px;
+    border-radius: 14px;
+    font-size: 14.5px;
+    line-height: 1.42;
+  }
+  .msg-user{
+    align-self: flex-end;
+    background: rgba(124,108,240,0.18);
+    border: 1px solid rgba(124,108,240,0.35);
+  }
+  .msg-bot{
+    align-self: flex-start;
+    background: rgba(63,224,232,0.10);
+    border: 1px solid rgba(63,224,232,0.25);
+  }
+  .msg-system{
+    align-self: center;
+    color: var(--text-dim);
+    font-family:'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: none;
+    border: none;
+    padding: 2px 0;
+  }
+  .transcript:empty::before{
+    content: "your conversation will appear here";
+    color: var(--text-dim);
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    margin: auto;
+  }
+
+  .input-row{
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .mic-btn, .send-btn{
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--panel-edge);
+    background: var(--panel);
+    color: var(--text);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    flex-shrink:0;
+    transition: background .2s, border-color .2s;
+  }
+  .mic-btn.active{
+    background: rgba(63,224,232,0.18);
+    border-color: var(--cyan);
+  }
+  .mic-btn:disabled{ opacity: 0.35; cursor:not-allowed; }
+  .mic-btn .bar{
+    fill: currentColor;
+    transform-origin: bottom;
+  }
+  .mic-btn.active .bar1{ animation: eq 0.9s ease-in-out infinite; }
+  .mic-btn.active .bar2{ animation: eq 0.9s ease-in-out infinite 0.15s; }
+  .mic-btn.active .bar3{ animation: eq 0.9s ease-in-out infinite 0.3s; }
+  @keyframes eq{
+    0%,100%{ transform: scaleY(0.4); }
+    50%{ transform: scaleY(1); }
+  }
+
+  #textInput{
+    flex:1;
+    height: 42px;
+    border-radius: 999px;
+    border: 1px solid var(--panel-edge);
+    background: var(--panel);
+    color: var(--text);
+    padding: 0 16px;
+    font-family:'Inter', sans-serif;
+    font-size: 14.5px;
+  }
+  #textInput::placeholder{ color: var(--text-dim); }
+
+  .hint{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align:center;
+    margin: 10px 0 0;
+  }
+  .hint[hidden]{ display:none; }
+
+  @media (max-width: 380px){
+    .core-wrap{ width:150px; height:150px; }
+    h1{ font-size:24px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .ring, .blob, .particles, .blob.pulse{ animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- ====== LOGIN GATE ====== -->
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <span class="eyebrow">access</span>
+      <h1>Lumen</h1>
+      <p class="login-copy">Ask the admin to add your email to the approved list first, then sign in below with a magic link — no password needed.</p>
+      <input id="loginEmail" type="email" placeholder="you@example.com" autocomplete="email" />
+      <button id="loginBtn">send magic link</button>
+      <p class="login-status" id="loginStatus"></p>
+    </div>
+  </div>
+
+  <!-- ====== MAIN APP ====== -->
+  <div class="app" id="app" data-status="idle" hidden>
+    <header>
+      <div>
+        <span class="eyebrow">your German practice buddy</span>
+        <h1>Lumen</h1>
+      </div>
+      <div class="header-right">
+        <div class="lang-toggle" role="group" aria-label="microphone language">
+          <button class="lang-btn" data-lang="en" id="langEn">EN</button>
+          <button class="lang-btn active" data-lang="de" id="langDe">DE</button>
+        </div>
+        <span class="mic-lang-caption">mic hears this</span>
+        <div class="text-link-row">
+          <button class="reset-link" id="resetBtn">forget our chats</button>
+          <button class="reset-link" id="signOutBtn">sign out</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="stage">
+      <div class="core-wrap" id="coreWrap">
+        <svg class="core-svg" viewBox="0 0 240 240" aria-hidden="true">
+          <defs>
+            <radialGradient id="haloGrad" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#7C6CF0" stop-opacity="0.55"/>
+              <stop offset="100%" stop-color="#7C6CF0" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="blobGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#9F8CFF"/>
+              <stop offset="100%" stop-color="#5B4FE0"/>
+            </linearGradient>
+            <filter id="softBlur" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="3.2"/>
+            </filter>
+          </defs>
+          <circle class="halo" cx="120" cy="120" r="105"/>
+          <polygon class="ring" points="120,28 197,72 197,168 120,212 43,168 43,72"/>
+          <path class="blob" id="blobPath"
+            d="M120,55 C150,55 175,75 180,105 C185,135 165,165 135,180 C105,195 70,180 60,150 C50,120 60,85 90,65 C100,58 110,55 120,55 Z"/>
+          <g class="particles">
+            <circle cx="120" cy="22" r="3.2"/>
+            <circle cx="206" cy="150" r="2.4"/>
+            <circle cx="48" cy="160" r="2.8"/>
+          </g>
+        </svg>
+        <button class="wake-overlay" id="wakeOverlay">tap to wake lumen</button>
+      </div>
+      <p class="status" id="statusText">tap the core to begin</p>
+    </main>
+
+    <section class="transcript" id="transcript" aria-live="polite"></section>
+
+    <footer class="input-row">
+      <button class="mic-btn" id="micBtn" aria-label="voice input" title="voice input">
+        <svg width="16" height="16" viewBox="0 0 16 16">
+          <rect class="bar bar1" x="1" y="5" width="3" height="6" rx="1.2"/>
+          <rect class="bar bar2" x="6.5" y="2" width="3" height="12" rx="1.2"/>
+          <rect class="bar bar3" x="12" y="5" width="3" height="6" rx="1.2"/>
+        </svg>
+      </button>
+      <input id="textInput" type="text" placeholder="sag etwas… (or English is fine too)" autocomplete="off" />
+      <button class="send-btn" id="sendBtn" aria-label="send" title="send">
+        <svg width="17" height="17" viewBox="0 0 17 17" fill="none">
+          <path d="M2 8.5L15 2L9.5 15L7.5 9.5L2 8.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </footer>
+    <p class="hint" id="unsupportedNote" hidden>Voice input isn't available in this browser. Chrome or Edge works best — you can still type below.</p>
+  </div>
+
+<script>
+(function(){
+  // ====== FILL THESE IN from Supabase: Project Settings -> API ======
+  const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY';
+  // ====================================================================
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const EDGE_FUNCTION_URL = SUPABASE_URL + '/functions/v1/lumen-chat';
+
+  const loginScreen = document.getElementById('loginScreen');
+  const loginEmail = document.getElementById('loginEmail');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginStatus = document.getElementById('loginStatus');
+
+  const appEl = document.getElementById('app');
+  const blobPath = document.getElementById('blobPath');
+  const wakeOverlay = document.getElementById('wakeOverlay');
+  const statusText = document.getElementById('statusText');
+  const transcript = document.getElementById('transcript');
+  const textInput = document.getElementById('textInput');
+  const micBtn = document.getElementById('micBtn');
+  const sendBtn = document.getElementById('sendBtn');
+  const langEn = document.getElementById('langEn');
+  const langDe = document.getElementById('langDe');
+  const unsupportedNote = document.getElementById('unsupportedNote');
+  const resetBtn = document.getElementById('resetBtn');
+  const signOutBtn = document.getElementById('signOutBtn');
+
+  const MAX_HISTORY = 24;
+  const HISTORY_KEY = 'lumen-history';
+
+  let session = null;
+  let micLang = 'de';
+  let woken = false;
+  let messages = [];
+  let voices = [];
+  let recognizing = false;
+  let recognition = null;
+  let activeUtterances = 0;
+
+  // ---------- AUTH ----------
+  async function initAuth(){
+    const { data } = await sb.auth.getSession();
+    session = data.session;
+    sb.auth.onAuthStateChange((_event, newSession) => {
+      session = newSession;
+      updateAuthUI();
+    });
+    updateAuthUI();
+  }
+
+  function updateAuthUI(){
+    if (session){
+      loginScreen.setAttribute('hidden', '');
+      appEl.removeAttribute('hidden');
+    } else {
+      loginScreen.removeAttribute('hidden');
+      appEl.setAttribute('hidden', '');
+    }
+  }
+
+  loginBtn.addEventListener('click', async () => {
+    const email = loginEmail.value.trim();
+    if (!email) return;
+    loginBtn.disabled = true;
+    loginStatus.textContent = 'sending…';
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href }
+    });
+    loginBtn.disabled = false;
+    loginStatus.textContent = error ? error.message : 'check your email for a sign-in link';
+  });
+
+  signOutBtn.addEventListener('click', async () => {
+    await sb.auth.signOut();
+  });
+
+  // ---------- UI HELPERS ----------
+  const labels = {
+    idle: { en: 'ready', de: 'bereit' },
+    listening: { en: 'listening…', de: 'ich höre…' },
+    thinking: { en: 'thinking…', de: 'denke nach…' },
+    speaking: { en: 'speaking…', de: 'spricht…' }
+  };
+
+  function setStatus(s){
+    appEl.dataset.status = s;
+    statusText.textContent = labels[s][micLang];
+  }
+
+  function setMicLang(l){
+    micLang = l;
+    langEn.classList.toggle('active', l === 'en');
+    langDe.classList.toggle('active', l === 'de');
+    if (appEl.dataset.status) setStatus(appEl.dataset.status);
+  }
+  langEn.addEventListener('click', () => setMicLang('en'));
+  langDe.addEventListener('click', () => setMicLang('de'));
+
+  function appendMessage(role, text){
+    const div = document.createElement('div');
+    div.className = 'msg ' + (role === 'user' ? 'msg-user' : role === 'system' ? 'msg-system' : 'msg-bot');
+    div.textContent = text;
+    transcript.appendChild(div);
+    transcript.scrollTop = transcript.scrollHeight;
+    return div;
+  }
+
+  function pulseCore(){
+    blobPath.classList.remove('pulse');
+    void blobPath.getBBox();
+    blobPath.classList.add('pulse');
+  }
+
+  function loadVoices(){ voices = speechSynthesis.getVoices(); }
+  if ('speechSynthesis' in window){
+    loadVoices();
+    speechSynthesis.onvoiceschanged = loadVoices;
+  }
+
+  function pickVoice(langCode){
+    if (!voices.length) return null;
+    return voices.find(v => v.lang === langCode) ||
+           voices.find(v => v.lang && v.lang.startsWith(langCode.slice(0,2))) ||
+           null;
+  }
+
+  const germanHints = /[äöüßÄÖÜ]|\b(ich|du|der|die|das|und|nicht|ist|war|habe|hast|hat|wir|sie|ein|eine|mit|auf|für|aber|gut|nein|kein|sehr|schon|noch|wie|was|warum|weil|fast|richtig|falsch|sag|nochmal)\b/i;
+  const englishHints = /\b(the|you|and|is|was|have|has|are|with|for|but|good|not|very|already|how|what|why|because|almost|right|wrong|say|again|don't|that's|here's)\b/i;
+  function detectSentenceLang(s){
+    const g = (s.match(germanHints) || []).length;
+    const e = (s.match(englishHints) || []).length;
+    if (g > e) return 'de-DE';
+    if (e > g) return 'en-US';
+    return micLang === 'de' ? 'de-DE' : 'en-US';
+  }
+
+  function queueSpeech(text){
+    if (!text || !text.trim()) return;
+    if (!('speechSynthesis' in window)) return;
+    const langCode = detectSentenceLang(text);
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = langCode;
+    const v = pickVoice(langCode);
+    if (v) utt.voice = v;
+    activeUtterances++;
+    utt.onstart = () => setStatus('speaking');
+    utt.onboundary = () => pulseCore();
+    const release = () => {
+      activeUtterances = Math.max(0, activeUtterances - 1);
+      if (activeUtterances === 0 && appEl.dataset.status !== 'listening') setStatus('idle');
+    };
+    utt.onend = release;
+    utt.onerror = release;
+    speechSynthesis.speak(utt);
+  }
+
+  // ---------- MEMORY (plain localStorage now — this runs as a normal site) ----------
+  function trimAndSaveHistory(){
+    if (messages.length > MAX_HISTORY) messages = messages.slice(messages.length - MAX_HISTORY);
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(messages)); }
+    catch(e){ console.error('save failed', e); }
+  }
+
+  function restoreHistory(){
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      if (raw){
+        const saved = JSON.parse(raw);
+        if (Array.isArray(saved) && saved.length){
+          messages = saved;
+          saved.forEach(m => appendMessage(m.role === 'user' ? 'user' : 'bot', m.content));
+          return true;
+        }
+      }
+    } catch(e){ /* nothing saved yet */ }
+    return false;
+  }
+
+  resetBtn.addEventListener('click', () => {
+    if (!window.confirm('Forget the conversation so far?')) return;
+    messages = [];
+    transcript.innerHTML = '';
+    try { localStorage.removeItem(HISTORY_KEY); } catch(e){}
+    appendMessage('system', 'memory cleared');
+  });
+
+  // ---------- THE BRAIN ----------
+  function buildSystemPrompt(){
+    return "You are Lumen — a warm, funny, deeply affectionate companion and German-practice buddy. " +
+      "You talk like a close friend who genuinely enjoys this person's company: encouraging, playful, a little teasing in a kind way, always glad to help, never bored or robotic. " +
+      "This is a real-time spoken conversation read aloud by text-to-speech, so write the way people actually talk: short, natural sentences. No markdown, no lists, no asterisks, no emoji, no stage directions. " +
+      "Your core job: when the person speaks or writes German with a mistake, catch it gently. Give the corrected German version first, then one short, friendly explanation of the mistake in English. Then keep the conversation going naturally in German. " +
+      "If they write or say something in English on purpose, just chat back warmly in English — no correction needed. Mix German and English naturally within the same reply when it helps, exactly like a real bilingual friend would, without being asked to switch. " +
+      "Keep replies short, usually one to three sentences total, even the corrections. Stay warm and a little funny, and never make them feel bad about a mistake — mistakes are just part of practicing. " +
+      "Don't mention you're an AI model unless asked directly.";
+  }
+
+  function flushSentences(buffer, force){
+    const sentenceEnd = /[.!?]+(\s|$)/;
+    let pending = buffer;
+    let match;
+    while ((match = pending.match(sentenceEnd))){
+      const idx = match.index + match[0].length;
+      const sentence = pending.slice(0, idx).trim();
+      pending = pending.slice(idx);
+      if (sentence) queueSpeech(sentence);
+    }
+    if (force && pending.trim()){
+      queueSpeech(pending.trim());
+      pending = '';
+    }
+    return pending;
+  }
+
+  async function sendMessage(rawText){
+    const text = (rawText || '').trim();
+    if (!text) return;
+    if (!session){
+      appendMessage('system', 'sign in first');
+      return;
+    }
+    appendMessage('user', text);
+    messages.push({ role: 'user', content: text });
+    textInput.value = '';
+    trimAndSaveHistory();
+    setStatus('thinking');
+
+    let botDiv = null;
+    let fullText = '';
+    let pendingSpeech = '';
+
+    try{
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 300,
+          system: buildSystemPrompt(),
+          messages: messages,
+          stream: true
+        })
+      });
+
+      if (res.status === 403){
+        appendMessage('system', "this email isn't approved yet — ask the admin");
+        setStatus('idle');
+        return;
+      }
+      if (!res.ok || !res.body){
+        const errBody = await res.text().catch(() => '');
+        throw new Error('API error ' + res.status + ': ' + errBody.slice(0, 200));
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true){
+        const { done, value } = await reader.read();
+        if (value){
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines){
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const jsonStr = trimmed.slice(5).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+            let evt;
+            try { evt = JSON.parse(jsonStr); } catch(e){ continue; }
+            if (evt.type === 'content_block_delta' && evt.delta && evt.delta.type === 'text_delta'){
+              const chunk = evt.delta.text;
+              if (!botDiv){
+                botDiv = appendMessage('bot', '');
+              }
+              fullText += chunk;
+              pendingSpeech += chunk;
+              botDiv.textContent = fullText;
+              transcript.scrollTop = transcript.scrollHeight;
+              pendingSpeech = flushSentences(pendingSpeech, false);
+            }
+          }
+        }
+        if (done) break;
+      }
+      flushSentences(pendingSpeech, true);
+
+      if (!fullText.trim()) throw new Error('empty reply from model');
+      messages.push({ role: 'assistant', content: fullText.trim() });
+      trimAndSaveHistory();
+
+    }catch(err){
+      console.error('Lumen error:', err);
+      const errMsg = micLang === 'de'
+        ? 'Lumens Signal flackert kurz. Versuch es nochmal.'
+        : "Lumen's signal flickered for a second there. Try again?";
+      if (!(botDiv && fullText.trim())){
+        appendMessage('bot', errMsg);
+        queueSpeech(errMsg);
+        if (activeUtterances === 0) setStatus('idle');
+      }
+    }
+  }
+
+  sendBtn.addEventListener('click', () => sendMessage(textInput.value));
+  textInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendMessage(textInput.value);
+  });
+
+  wakeOverlay.addEventListener('click', () => {
+    woken = true;
+    wakeOverlay.setAttribute('hidden', '');
+    setStatus('idle');
+    const hadHistory = restoreHistory();
+    if (hadHistory){
+      appendMessage('system', 'memory restored');
+      queueSpeech('Willkommen zurück! Good to have you back.');
+    } else {
+      const greeting = "Hey, ich bin Lumen — your favorite German-practice buddy. Sag einfach, was du sagen willst, and if it's not quite right, I'll catch it.";
+      appendMessage('bot', greeting);
+      messages.push({ role: 'assistant', content: greeting });
+      queueSpeech(greeting);
+    }
+  });
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR){
+    recognition = new SR();
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onstart = () => {
+      recognizing = true;
+      micBtn.classList.add('active');
+      setStatus('listening');
+    };
+    recognition.onerror = () => {
+      recognizing = false;
+      micBtn.classList.remove('active');
+      setStatus('idle');
+    };
+    recognition.onend = () => {
+      recognizing = false;
+      micBtn.classList.remove('active');
+      if (appEl.dataset.status === 'listening') setStatus('idle');
+    };
+    recognition.onresult = (e) => {
+      let interim = '', final = '';
+      for (let i = e.resultIndex; i < e.results.length; i++){
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += t; else interim += t;
+      }
+      textInput.value = final || interim;
+      if (final.trim()){
+        recognition.stop();
+        sendMessage(final.trim());
+      }
+    };
+
+    micBtn.addEventListener('click', () => {
+      if (!woken){
+        woken = true;
+        wakeOverlay.setAttribute('hidden', '');
+      }
+      if (recognizing){
+        recognition.stop();
+      } else {
+        recognition.lang = micLang === 'de' ? 'de-DE' : 'en-US';
+        try { recognition.start(); } catch(e){ /* already started */ }
+      }
+    });
+  } else {
+    micBtn.disabled = true;
+    unsupportedNote.removeAttribute('hidden');
+  }
+
+  setMicLang('de');
+  initAuth();
+})();
+</script>
+</body>
+</html>
