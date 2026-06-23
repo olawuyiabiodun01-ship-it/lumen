@@ -252,13 +252,33 @@
   .wake-overlay[hidden]{ display:none; }
 
   .status{
-    margin: 12px 0 0;
+    margin: 10px 0 0;
     font-family:'JetBrains Mono', monospace;
     font-size: 12px;
     color: var(--text-dim);
     letter-spacing: 0.04em;
     min-height: 16px;
   }
+
+  .wave{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap: 3px;
+    height: 26px;
+    margin-top: 10px;
+  }
+  .wave-bar{
+    width: 4px;
+    height: 4px;
+    min-height: 4px;
+    border-radius: 2px;
+    background: var(--core-color);
+    opacity: 0.85;
+    transition: height .07s ease-out, background .4s ease;
+  }
+  #app[data-status="listening"] .wave-bar{ background: var(--cyan); }
+  #app[data-status="speaking"] .wave-bar{ background: var(--pink); }
 
   .transcript{
     flex: 1 1 auto;
@@ -326,6 +346,9 @@
   .mic-btn.active{
     background: rgba(63,224,232,0.18);
     border-color: var(--cyan);
+  }
+  .mic-btn.muted{
+    opacity: 0.45;
   }
   .mic-btn:disabled{ opacity: 0.35; cursor:not-allowed; }
   .mic-btn .bar{
@@ -434,13 +457,14 @@
         </svg>
         <button class="wake-overlay" id="wakeOverlay">tap to wake lumen</button>
       </div>
+      <div class="wave" id="waveform"></div>
       <p class="status" id="statusText">tap the core to begin</p>
     </main>
 
     <section class="transcript" id="transcript" aria-live="polite"></section>
 
     <footer class="input-row">
-      <button class="mic-btn" id="micBtn" aria-label="voice input" title="voice input">
+      <button class="mic-btn" id="micBtn" aria-label="pause or resume listening" title="tap to mute/unmute — Lumen listens continuously">
         <svg width="16" height="16" viewBox="0 0 16 16">
           <rect class="bar bar1" x="1" y="5" width="3" height="6" rx="1.2"/>
           <rect class="bar bar2" x="6.5" y="2" width="3" height="12" rx="1.2"/>
@@ -460,9 +484,9 @@
 <script>
 (function(){
   // ====== FILL THESE IN from Supabase: Project Settings -> API ======
-  const SUPABASE_URL = 'https://apvslzcldlqzskawpzzk.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_uHQ2yS1s2NNa5ENZ5IAahg_1WOlgb-R';
-// ====================================================================
+  const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY';
+  // ====================================================================
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const EDGE_FUNCTION_URL = SUPABASE_URL + '/functions/v1/lumen-chat';
@@ -485,9 +509,11 @@
   const unsupportedNote = document.getElementById('unsupportedNote');
   const resetBtn = document.getElementById('resetBtn');
   const signOutBtn = document.getElementById('signOutBtn');
+  const waveform = document.getElementById('waveform');
 
   const MAX_HISTORY = 24;
   const HISTORY_KEY = 'lumen-history';
+  const WAVE_BAR_COUNT = 20;
 
   let session = null;
   let micLang = 'de';
@@ -497,6 +523,10 @@
   let recognizing = false;
   let recognition = null;
   let activeUtterances = 0;
+  let isPaused = false;          // mic button toggles this — pauses the hands-free loop
+  let waveBars = [];
+  let audioCtx = null;
+  let analyser = null;
 
   // ---------- AUTH ----------
   async function initAuth(){
@@ -573,6 +603,67 @@
     blobPath.classList.add('pulse');
   }
 
+  // ---------- LIVE MIC WAVEFORM (separate audio tap, just for visual feedback) ----------
+  for (let i = 0; i < WAVE_BAR_COUNT; i++){
+    const bar = document.createElement('div');
+    bar.className = 'wave-bar';
+    waveform.appendChild(bar);
+    waveBars.push(bar);
+  }
+
+  async function initMicVisualizer(){
+    if (audioCtx) return; // already set up
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      drawWaveform();
+    }catch(e){
+      console.error('mic visualizer unavailable:', e);
+    }
+  }
+
+  function drawWaveform(){
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    (function frame(){
+      analyser.getByteFrequencyData(data);
+      for (let i = 0; i < waveBars.length; i++){
+        const v = data[Math.floor(i * data.length / waveBars.length)] || 0;
+        const pct = Math.max(4, Math.round((v / 255) * 26));
+        waveBars[i].style.height = pct + 'px';
+      }
+      requestAnimationFrame(frame);
+    })();
+  }
+
+  // ---------- HANDS-FREE LISTENING LOOP ----------
+  function startListening(){
+    if (!recognition || recognizing || isPaused) return;
+    recognition.lang = micLang === 'de' ? 'de-DE' : 'en-US';
+    try { recognition.start(); } catch(e){ /* already running, ignore */ }
+  }
+
+  function maybeAutoListen(){
+    if (!recognition || isPaused || !woken) return;
+    setTimeout(() => {
+      if (appEl.dataset.status === 'idle' && !recognizing) startListening();
+    }, 350);
+  }
+
+  function setPaused(p){
+    isPaused = p;
+    micBtn.classList.toggle('muted', isPaused);
+    if (isPaused){
+      if (recognizing && recognition) recognition.stop();
+      setStatus('idle');
+    } else {
+      maybeAutoListen();
+    }
+  }
+
   function loadVoices(){ voices = speechSynthesis.getVoices(); }
   if ('speechSynthesis' in window){
     loadVoices();
@@ -609,7 +700,10 @@
     utt.onboundary = () => pulseCore();
     const release = () => {
       activeUtterances = Math.max(0, activeUtterances - 1);
-      if (activeUtterances === 0 && appEl.dataset.status !== 'listening') setStatus('idle');
+      if (activeUtterances === 0){
+        if (appEl.dataset.status !== 'listening') setStatus('idle');
+        maybeAutoListen();
+      }
     };
     utt.onend = release;
     utt.onerror = release;
@@ -686,6 +780,7 @@
     textInput.value = '';
     trimAndSaveHistory();
     setStatus('thinking');
+    if (recognizing && recognition){ try { recognition.stop(); } catch(e){} }
 
     let botDiv = null;
     let fullText = '';
@@ -777,12 +872,13 @@
     woken = true;
     wakeOverlay.setAttribute('hidden', '');
     setStatus('idle');
+    initMicVisualizer();
     const hadHistory = restoreHistory();
     if (hadHistory){
       appendMessage('system', 'memory restored');
       queueSpeech('Willkommen zurück! Good to have you back.');
     } else {
-      const greeting = "Hey, ich bin Lumen — your favorite German-practice buddy. Sag einfach, was du sagen willst, and if it's not quite right, I'll catch it.";
+      const greeting = "Hey, ich bin Lumen — your favorite German-practice buddy. Sag einfach, was du sagen willst, and if it's not quite right, I'll catch it. I'm listening the whole time now, so just talk whenever you're ready.";
       appendMessage('bot', greeting);
       messages.push({ role: 'assistant', content: greeting });
       queueSpeech(greeting);
@@ -800,15 +896,21 @@
       micBtn.classList.add('active');
       setStatus('listening');
     };
-    recognition.onerror = () => {
+    recognition.onerror = (e) => {
       recognizing = false;
       micBtn.classList.remove('active');
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+        isPaused = true;
+        micBtn.classList.add('muted');
+        appendMessage('system', 'microphone access is blocked — check your browser/site permissions');
+      }
       setStatus('idle');
     };
     recognition.onend = () => {
       recognizing = false;
       micBtn.classList.remove('active');
       if (appEl.dataset.status === 'listening') setStatus('idle');
+      maybeAutoListen();
     };
     recognition.onresult = (e) => {
       let interim = '', final = '';
@@ -824,16 +926,8 @@
     };
 
     micBtn.addEventListener('click', () => {
-      if (!woken){
-        woken = true;
-        wakeOverlay.setAttribute('hidden', '');
-      }
-      if (recognizing){
-        recognition.stop();
-      } else {
-        recognition.lang = micLang === 'de' ? 'de-DE' : 'en-US';
-        try { recognition.start(); } catch(e){ /* already started */ }
-      }
+      if (!woken) return; // wake the core first
+      setPaused(!isPaused);
     });
   } else {
     micBtn.disabled = true;
