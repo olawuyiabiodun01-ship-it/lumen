@@ -484,8 +484,8 @@
 <script>
 (function(){
   // ====== FILL THESE IN from Supabase: Project Settings -> API ======
-  const SUPABASE_URL = 'https://apvslzcldlqzskawpzzk.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_uHQ2yS1s2NNa5ENZ5IAahg_1WOlgb-R';
+  const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY';
   // ====================================================================
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -554,12 +554,23 @@
     if (!email) return;
     loginBtn.disabled = true;
     loginStatus.textContent = 'sending…';
-    const { error } = await sb.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.href }
-    });
+    try {
+      const { error } = await sb.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: window.location.href }
+      });
+      if (error){
+        console.error('signInWithOtp error:', error);
+        const detail = error.message || error.error_description || error.code || JSON.stringify(error);
+        loginStatus.textContent = 'error: ' + detail;
+      } else {
+        loginStatus.textContent = 'check your email for a sign-in link';
+      }
+    } catch (err){
+      console.error('signInWithOtp threw:', err);
+      loginStatus.textContent = 'error: ' + (err && err.message ? err.message : String(err));
+    }
     loginBtn.disabled = false;
-    loginStatus.textContent = error ? error.message : 'check your email for a sign-in link';
   });
 
   signOutBtn.addEventListener('click', async () => {
