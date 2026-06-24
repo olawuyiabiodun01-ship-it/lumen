@@ -12,6 +12,13 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Pass every request straight through to the network.
+  // Only ever touch same-origin GET requests for this app's own files.
+  // Everything else — especially cross-origin calls to Supabase or Anthropic —
+  // is left completely untouched, since intercepting those can break
+  // auth and streaming requests.
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin){
+    return; // no respondWith() at all = browser handles it exactly as normal
+  }
   event.respondWith(fetch(event.request));
 });
