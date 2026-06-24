@@ -62,6 +62,76 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
 
+    // ---- BACKGROUND TAGGING MODE ----
+    // The frontend fires this after speaking its reply, without waiting on it.
+    // It classifies whether a correction happened and logs the category.
+    if (body.mode === "tag") {
+      const classifyRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 60,
+          system: 'You classify whether a German-practice correction happened in this exchange. ' +
+            'Reply with ONLY compact JSON, no prose, no markdown: {"mistake":true|false,"category":"short label"}. ' +
+            'Categories should be short and reusable, e.g. "der/die/das gender", "verb conjugation", "word order", "case endings", "separable verbs", "adjective endings". ' +
+            'If no real German mistake was corrected, return {"mistake":false,"category":""}.',
+          messages: [{
+            role: "user",
+            content: "Person said: " + (body.userText || "") + "\nLumen replied: " + (body.assistantText || ""),
+          }],
+        }),
+      });
+      const classifyData = await classifyRes.json();
+      const text = (classifyData.content || [])
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("")
+        .trim();
+
+      let parsed = { mistake: false, category: "" };
+      try { parsed = JSON.parse(text); } catch (_e) { /* ignore malformed classification, just skip logging */ }
+
+      if (parsed.mistake && parsed.category) {
+        await supabase.from("mistake_log").insert({
+          user_email: email,
+          category: parsed.category,
+          example: (body.userText || "").slice(0, 300),
+        });
+      }
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---- NORMAL CHAT MODE ----
+    // Check for recent recurring mistakes and gently nudge the system prompt,
+    // without an extra LLM call — just one fast table lookup.
+    let patternNote = "";
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: recent } = await supabase
+      .from("mistake_log")
+      .select("category")
+      .eq("user_email", email)
+      .gte("created_at", thirtyDaysAgo);
+
+    if (recent && recent.length) {
+      const counts: Record<string, number> = {};
+      for (const row of recent) counts[row.category] = (counts[row.category] || 0) + 1;
+      const top = Object.entries(counts).filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1])[0];
+      if (top) {
+        patternNote = ` Heads up: this learner has mixed up "${top[0]}" ${top[1]} times recently — if it comes up again, ` +
+          `gently point out the pattern as a warm, friendly observation, not a lecture.`;
+      }
+    }
+
+    const augmentedBody = { ...body, system: (body.system || "") + patternNote };
+
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -69,7 +139,7 @@ Deno.serve(async (req) => {
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(augmentedBody),
     });
 
     // Stream Anthropic's response straight through so sentence-by-sentence

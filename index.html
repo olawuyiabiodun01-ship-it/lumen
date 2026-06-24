@@ -4,6 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Lumen — your German practice buddy</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#060710">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lumen">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -34,14 +41,12 @@
 
   body{
     background-image:
-      radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.5) 0, transparent 40%),
-      radial-gradient(1px 1px at 70% 20%, rgba(255,255,255,0.4) 0, transparent 40%),
-      radial-gradient(1px 1px at 40% 80%, rgba(255,255,255,0.35) 0, transparent 40%),
-      radial-gradient(1px 1px at 85% 65%, rgba(255,255,255,0.4) 0, transparent 40%),
-      radial-gradient(1px 1px at 10% 60%, rgba(255,255,255,0.3) 0, transparent 40%),
-      radial-gradient(ellipse at 50% -10%, rgba(124,108,240,0.18), transparent 60%),
-      var(--bg-deep);
+      linear-gradient(180deg, rgba(6,7,16,0.55) 0%, rgba(6,7,16,0.82) 55%, rgba(6,7,16,0.95) 100%),
+      url('lumen-bg.jpg');
+    background-size: cover;
+    background-position: center 18%;
     background-repeat: no-repeat;
+    background-attachment: fixed;
   }
 
   .app, .login-screen{
@@ -484,8 +489,8 @@
 <script>
 (function(){
   // ====== FILL THESE IN from Supabase: Project Settings -> API ======
-  const SUPABASE_URL = 'https://apvslzcldlqzskawpzzk.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_8hgovw8SLg4S4ZR2-p26Sg_v3CGpTPg';
+  const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY';
   // ====================================================================
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -524,6 +529,8 @@
   let recognition = null;
   let activeUtterances = 0;
   let isPaused = false;          // mic button toggles this — pauses the hands-free loop
+  let isAsleep = false;           // true after 1 minute of silence — needs a tap to resume
+  let lastActivityAt = Date.now();
   let waveBars = [];
   let audioCtx = null;
   let analyser = null;
@@ -658,11 +665,25 @@
   }
 
   function maybeAutoListen(){
-    if (!recognition || isPaused || !woken) return;
+    if (!recognition || isPaused || isAsleep || !woken) return;
     setTimeout(() => {
       if (appEl.dataset.status === 'idle' && !recognizing) startListening();
     }, 350);
   }
+
+  function goToSleep(){
+    isAsleep = true;
+    if (recognizing && recognition){ try { recognition.stop(); } catch(e){} }
+    setStatus('idle');
+    wakeOverlay.textContent = micLang === 'de' ? 'eingenickt — zum Aufwecken tippen' : 'dozed off — tap to wake her';
+    wakeOverlay.removeAttribute('hidden');
+  }
+
+  setInterval(() => {
+    if (woken && !isAsleep && activeUtterances === 0 && (Date.now() - lastActivityAt) > 60000){
+      goToSleep();
+    }
+  }, 5000);
 
   function setPaused(p){
     isPaused = p;
@@ -681,37 +702,39 @@
     speechSynthesis.onvoiceschanged = loadVoices;
   }
 
-  function pickVoice(langCode){
+  // One single consistent voice for Lumen, picked once and reused for everything —
+  // no more switching voices per sentence (that's what made it sound like two people).
+  let lumenVoice = null;
+  function pickLumenVoice(){
+    if (lumenVoice) return lumenVoice;
     if (!voices.length) return null;
-    return voices.find(v => v.lang === langCode) ||
-           voices.find(v => v.lang && v.lang.startsWith(langCode.slice(0,2))) ||
-           null;
-  }
-
-  const germanHints = /[äöüßÄÖÜ]|\b(ich|du|der|die|das|und|nicht|ist|war|habe|hast|hat|wir|sie|ein|eine|mit|auf|für|aber|gut|nein|kein|sehr|schon|noch|wie|was|warum|weil|fast|richtig|falsch|sag|nochmal)\b/i;
-  const englishHints = /\b(the|you|and|is|was|have|has|are|with|for|but|good|not|very|already|how|what|why|because|almost|right|wrong|say|again|don't|that's|here's)\b/i;
-  function detectSentenceLang(s){
-    const g = (s.match(germanHints) || []).length;
-    const e = (s.match(englishHints) || []).length;
-    if (g > e) return 'de-DE';
-    if (e > g) return 'en-US';
-    return micLang === 'de' ? 'de-DE' : 'en-US';
+    lumenVoice = voices.find(v => /female/i.test(v.name)) ||
+                 voices.find(v => v.lang === 'en-US') ||
+                 voices.find(v => v.lang && v.lang.startsWith('en')) ||
+                 voices[0] ||
+                 null;
+    return lumenVoice;
   }
 
   function queueSpeech(text){
     if (!text || !text.trim()) return;
     if (!('speechSynthesis' in window)) return;
-    const langCode = detectSentenceLang(text);
     const utt = new SpeechSynthesisUtterance(text);
-    utt.lang = langCode;
-    const v = pickVoice(langCode);
-    if (v) utt.voice = v;
+    const voice = pickLumenVoice();
+    if (voice){
+      utt.voice = voice;
+      utt.lang = voice.lang;
+    } else {
+      utt.lang = micLang === 'de' ? 'de-DE' : 'en-US';
+    }
+    utt.rate = 0.9; // a touch slower than default — natural, not dragging
     activeUtterances++;
     utt.onstart = () => setStatus('speaking');
     utt.onboundary = () => pulseCore();
     const release = () => {
       activeUtterances = Math.max(0, activeUtterances - 1);
       if (activeUtterances === 0){
+        lastActivityAt = Date.now();
         if (appEl.dataset.status !== 'listening') setStatus('idle');
         maybeAutoListen();
       }
@@ -786,6 +809,11 @@
       appendMessage('system', 'sign in first');
       return;
     }
+    if (isAsleep){
+      isAsleep = false;
+      wakeOverlay.setAttribute('hidden', '');
+    }
+    lastActivityAt = Date.now();
     appendMessage('user', text);
     messages.push({ role: 'user', content: text });
     textInput.value = '';
@@ -861,6 +889,16 @@
       messages.push({ role: 'assistant', content: fullText.trim() });
       trimAndSaveHistory();
 
+      // Background tagging — fire and forget, never blocks the conversation or voice.
+      fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token
+        },
+        body: JSON.stringify({ mode: 'tag', userText: text, assistantText: fullText.trim() })
+      }).catch(e => console.error('background tagging failed (non-critical):', e));
+
     }catch(err){
       console.error('Lumen error:', err);
       const errMsg = micLang === 'de'
@@ -880,8 +918,18 @@
   });
 
   wakeOverlay.addEventListener('click', () => {
-    woken = true;
     wakeOverlay.setAttribute('hidden', '');
+    lastActivityAt = Date.now();
+
+    if (woken){
+      // re-waking from sleep, not a first-time start
+      isAsleep = false;
+      setStatus('idle');
+      maybeAutoListen();
+      return;
+    }
+
+    woken = true;
     setStatus('idle');
     initMicVisualizer();
     const hadHistory = restoreHistory();
@@ -947,6 +995,10 @@
 
   setMicLang('de');
   initAuth();
+
+  if ('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(e => console.error('service worker registration failed:', e));
+  }
 })();
 </script>
 </body>
