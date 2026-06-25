@@ -250,6 +250,57 @@
   .admin-row .email{ color: var(--text); word-break: break-all; }
   .admin-row .nums{ color: var(--text-dim); font-family:'JetBrains Mono', monospace; font-size: 11.5px; text-align:right; white-space:nowrap; }
 
+  .admin-add-row{
+    display:flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .admin-add-row input{
+    flex:1;
+    height: 38px;
+    border-radius: 999px;
+    border: 1px solid var(--panel-edge);
+    background: var(--bg);
+    color: var(--text);
+    padding: 0 14px;
+    font-family:'Inter', sans-serif;
+    font-size: 13.5px;
+  }
+  .admin-add-row button{
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: none;
+    background: var(--cyan);
+    color: var(--bg-deep);
+    font-family:'Space Grotesk', sans-serif;
+    font-weight: 500;
+    font-size: 13px;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .admin-add-row button:disabled{ opacity:0.5; cursor:not-allowed; }
+  .admin-user-row{
+    display:flex;
+    justify-content: space-between;
+    align-items:center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--panel-edge);
+    font-size: 13px;
+  }
+  .admin-user-row:last-child{ border-bottom: none; }
+  .admin-user-row .email{ color: var(--text); word-break: break-all; }
+  .admin-remove-btn{
+    background:none;
+    border:none;
+    color: var(--pink);
+    font-family:'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor:pointer;
+    flex-shrink:0;
+    margin-left: 10px;
+  }
+
   .lang-btn:focus-visible, .mic-btn:focus-visible, .send-btn:focus-visible, .wake-overlay:focus-visible,
   #textInput:focus-visible, .reset-link:focus-visible, #loginBtn:focus-visible, #loginEmail:focus-visible{
     outline: 2px solid var(--cyan);
@@ -529,7 +580,15 @@
           <span class="eyebrow">admin</span>
           <button class="reset-link" id="adminCloseBtn">close</button>
         </div>
-        <h2>Token usage by person</h2>
+
+        <h2>Manage access</h2>
+        <div class="admin-add-row">
+          <input id="adminNewEmail" type="email" placeholder="add an email…" autocomplete="off" />
+          <button id="adminAddBtn">add</button>
+        </div>
+        <div id="adminUsersBody"><p class="login-status">loading…</p></div>
+
+        <h2 style="margin-top:24px;">Token usage by person</h2>
         <div id="adminBody"><p class="login-status">loading…</p></div>
       </div>
     </div>
@@ -623,6 +682,9 @@
   const adminModal = document.getElementById('adminModal');
   const adminBody = document.getElementById('adminBody');
   const adminCloseBtn = document.getElementById('adminCloseBtn');
+  const adminUsersBody = document.getElementById('adminUsersBody');
+  const adminNewEmail = document.getElementById('adminNewEmail');
+  const adminAddBtn = document.getElementById('adminAddBtn');
   const waveform = document.getElementById('waveform');
 
   const MAX_HISTORY = 24;
@@ -711,8 +773,7 @@
     await sb.auth.signOut();
   });
 
-  adminBtn.addEventListener('click', async () => {
-    adminModal.removeAttribute('hidden');
+  async function loadAdminUsage(){
     adminBody.innerHTML = '<p class="login-status">loading…</p>';
     try {
       const res = await fetch(EDGE_FUNCTION_URL, {
@@ -745,6 +806,93 @@
       console.error('admin usage fetch failed:', err);
       adminBody.innerHTML = '<p class="login-status">error: ' + (err.message || String(err)) + '</p>';
     }
+  }
+
+  async function loadAdminUsers(){
+    adminUsersBody.innerHTML = '<p class="login-status">loading…</p>';
+    try {
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token
+        },
+        body: JSON.stringify({ mode: 'admin_list_users' })
+      });
+      const data = await res.json();
+      if (!res.ok){
+        adminUsersBody.innerHTML = '<p class="login-status">error: ' + (data.error || res.status) + '</p>';
+        return;
+      }
+      const users = data.users || [];
+      if (!users.length){
+        adminUsersBody.innerHTML = '<p class="login-status">no approved users yet</p>';
+        return;
+      }
+      adminUsersBody.innerHTML = users.map(u =>
+        '<div class="admin-user-row"><span class="email">' + u.email + '</span>' +
+        '<button class="admin-remove-btn" data-email="' + u.email + '">remove</button></div>'
+      ).join('');
+      adminUsersBody.querySelectorAll('.admin-remove-btn').forEach(btn => {
+        btn.addEventListener('click', () => removeApprovedUser(btn.dataset.email));
+      });
+    } catch (err){
+      console.error('admin user list fetch failed:', err);
+      adminUsersBody.innerHTML = '<p class="login-status">error: ' + (err.message || String(err)) + '</p>';
+    }
+  }
+
+  async function removeApprovedUser(targetEmail){
+    if (!window.confirm('Remove ' + targetEmail + '? They will lose access immediately.')) return;
+    try {
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token
+        },
+        body: JSON.stringify({ mode: 'admin_remove_user', email: targetEmail })
+      });
+      const data = await res.json();
+      if (!res.ok){ alert('error: ' + (data.error || res.status)); return; }
+      loadAdminUsers();
+    } catch (err){
+      console.error('remove user failed:', err);
+      alert('error: ' + (err.message || String(err)));
+    }
+  }
+
+  adminAddBtn.addEventListener('click', async () => {
+    const newEmail = adminNewEmail.value.trim().toLowerCase();
+    if (!newEmail) return;
+    adminAddBtn.disabled = true;
+    try {
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token
+        },
+        body: JSON.stringify({ mode: 'admin_add_user', email: newEmail })
+      });
+      const data = await res.json();
+      if (!res.ok){
+        alert('error: ' + (data.error || res.status));
+      } else {
+        adminNewEmail.value = '';
+        loadAdminUsers();
+      }
+    } catch (err){
+      console.error('add user failed:', err);
+      alert('error: ' + (err.message || String(err)));
+    }
+    adminAddBtn.disabled = false;
+  });
+
+  adminBtn.addEventListener('click', () => {
+    adminModal.removeAttribute('hidden');
+    loadAdminUsers();
+    loadAdminUsage();
   });
 
   adminCloseBtn.addEventListener('click', () => {

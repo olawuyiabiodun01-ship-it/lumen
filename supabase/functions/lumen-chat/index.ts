@@ -153,6 +153,86 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ---- ADMIN: LIST APPROVED USERS ----
+    if (body.mode === "admin_list_users") {
+      if (email !== ADMIN_EMAIL) {
+        return new Response(JSON.stringify({ error: "admin only" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: users, error: usersErr } = await supabase
+        .from("approved_users")
+        .select("email, added_at")
+        .order("added_at", { ascending: false });
+      if (usersErr) {
+        return new Response(JSON.stringify({ error: usersErr.message }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ users }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---- ADMIN: ADD APPROVED USER ----
+    if (body.mode === "admin_add_user") {
+      if (email !== ADMIN_EMAIL) {
+        return new Response(JSON.stringify({ error: "admin only" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const newEmail = (body.email || "").trim().toLowerCase();
+      if (!newEmail || !newEmail.includes("@")) {
+        return new Response(JSON.stringify({ error: "invalid email" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { error: insertErr } = await supabase
+        .from("approved_users")
+        .insert({ email: newEmail });
+      // 23505 = unique violation, i.e. already approved — treat as success, not an error
+      if (insertErr && insertErr.code !== "23505") {
+        return new Response(JSON.stringify({ error: insertErr.message }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---- ADMIN: REMOVE APPROVED USER ----
+    if (body.mode === "admin_remove_user") {
+      if (email !== ADMIN_EMAIL) {
+        return new Response(JSON.stringify({ error: "admin only" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const targetEmail = (body.email || "").trim().toLowerCase();
+      if (!targetEmail) {
+        return new Response(JSON.stringify({ error: "invalid email" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (targetEmail === ADMIN_EMAIL) {
+        return new Response(JSON.stringify({ error: "can't remove the admin account" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { error: deleteErr } = await supabase
+        .from("approved_users")
+        .delete()
+        .eq("email", targetEmail);
+      if (deleteErr) {
+        return new Response(JSON.stringify({ error: deleteErr.message }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ---- NORMAL CHAT MODE ----
     // Check for recent recurring mistakes and gently nudge the system prompt,
     // without an extra LLM call — just one fast table lookup.
