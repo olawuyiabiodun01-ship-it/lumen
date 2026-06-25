@@ -1017,8 +1017,7 @@
     speechSynthesis.onvoiceschanged = loadVoices;
   }
 
-  // One single consistent voice for Lumen, picked once and reused for everything —
-  // no more switching voices per sentence (that's what made it sound like two people).
+  // Fallback-only voice picker, used if ElevenLabs ever fails (quota, network, etc.)
   let lumenVoice = null;
   function pickLumenVoice(){
     if (lumenVoice) return lumenVoice;
@@ -1031,21 +1030,67 @@
     return lumenVoice;
   }
 
+  function speakWithBrowserTTS(text){
+    return new Promise((resolve) => {
+      if (!('speechSynthesis' in window)){ resolve(); return; }
+      const utt = new SpeechSynthesisUtterance(text);
+      const voice = pickLumenVoice();
+      if (voice){ utt.voice = voice; utt.lang = voice.lang; }
+      else { utt.lang = micLang === 'de' ? 'de-DE' : 'en-US'; }
+      utt.rate = 0.9;
+      utt.onstart = () => { setStatus('speaking'); };
+      utt.onboundary = () => pulseCore();
+      utt.onend = resolve;
+      utt.onerror = resolve;
+      speechSynthesis.speak(utt);
+    });
+  }
+
+  // Ordered playback queue for ElevenLabs audio. Each sentence reserves its
+  // slot the moment it's requested, so playback always stays in the order
+  // sentences were generated — even if a later fetch happens to resolve first.
+  let audioQueue = [];
+  let audioPlaying = false;
+  let pulseTimer = null;
+
+  function tryAdvanceQueue(){
+    if (audioPlaying) return;
+    const slot = audioQueue[0];
+    if (!slot) return;
+    if (!slot.ready) return; // front of the queue isn't ready yet — wait for it, don't skip ahead
+
+    audioQueue.shift();
+    audioPlaying = true;
+
+    if (slot.failed){
+      speakWithBrowserTTS(slot.text).then(() => {
+        audioPlaying = false;
+        slot.release();
+        tryAdvanceQueue();
+      });
+      return;
+    }
+
+    const audio = new Audio(slot.url);
+    audio.onplay = () => {
+      setStatus('speaking');
+      pulseTimer = setInterval(pulseCore, 220); // approximates word-boundary pulses
+    };
+    const finish = () => {
+      if (pulseTimer){ clearInterval(pulseTimer); pulseTimer = null; }
+      URL.revokeObjectURL(slot.url);
+      audioPlaying = false;
+      slot.release();
+      tryAdvanceQueue();
+    };
+    audio.onended = finish;
+    audio.onerror = finish;
+    audio.play().catch(finish);
+  }
+
   function queueSpeech(text){
     if (!text || !text.trim()) return;
-    if (!('speechSynthesis' in window)) return;
-    const utt = new SpeechSynthesisUtterance(text);
-    const voice = pickLumenVoice();
-    if (voice){
-      utt.voice = voice;
-      utt.lang = voice.lang;
-    } else {
-      utt.lang = micLang === 'de' ? 'de-DE' : 'en-US';
-    }
-    utt.rate = 0.9; // a touch slower than default — natural, not dragging
     activeUtterances++;
-    utt.onstart = () => setStatus('speaking');
-    utt.onboundary = () => pulseCore();
     const release = () => {
       activeUtterances = Math.max(0, activeUtterances - 1);
       if (activeUtterances === 0){
@@ -1054,9 +1099,31 @@
         maybeAutoListen();
       }
     };
-    utt.onend = release;
-    utt.onerror = release;
-    speechSynthesis.speak(utt);
+
+    const slot = { ready: false, failed: false, url: null, text: text.trim(), release };
+    audioQueue.push(slot);
+
+    (async () => {
+      try{
+        if (!session) throw new Error('no session yet');
+        const res = await fetch(EDGE_FUNCTION_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + session.access_token
+          },
+          body: JSON.stringify({ mode: 'tts', text: slot.text })
+        });
+        if (!res.ok) throw new Error('tts http ' + res.status);
+        const blob = await res.blob();
+        slot.url = URL.createObjectURL(blob);
+      } catch(err){
+        console.error('ElevenLabs TTS failed, falling back to browser voice:', err);
+        slot.failed = true;
+      }
+      slot.ready = true;
+      tryAdvanceQueue();
+    })();
   }
 
   // ---------- MEMORY (plain localStorage now — this runs as a normal site) ----------

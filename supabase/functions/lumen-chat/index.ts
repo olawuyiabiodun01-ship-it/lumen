@@ -15,6 +15,13 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Your ElevenLabs key — set with: supabase secrets set ELEVENLABS_API_KEY=...
+const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY")!;
+// Default is "Rachel", a stable ElevenLabs premade voice that handles German
+// and English well via the multilingual model. Swap to any voice_id from
+// your own Voice Library by setting an ELEVENLABS_VOICE_ID secret instead.
+const ELEVENLABS_VOICE_ID = Deno.env.get("ELEVENLABS_VOICE_ID") || "21m00Tcm4TlvDq8ikWAM";
+
 // Only this email can see per-user token usage. Override anytime by setting
 // an ADMIN_EMAIL secret instead, without touching this code.
 const ADMIN_EMAIL = (Deno.env.get("ADMIN_EMAIL") || "olawuyiabiodun01@gmail.com").toLowerCase();
@@ -69,6 +76,48 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
+
+    // ---- TEXT-TO-SPEECH MODE ----
+    // Converts one sentence to natural multilingual speech via ElevenLabs.
+    // Returns raw audio bytes; the frontend falls back to the browser's
+    // built-in voice if this fails for any reason.
+    if (body.mode === "tts") {
+      const text = (body.text || "").trim();
+      if (!text) {
+        return new Response(JSON.stringify({ error: "missing text" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const elevenRes = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Accept": "audio/mpeg",
+          },
+          body: JSON.stringify({
+            text,
+            model_id: "eleven_multilingual_v2",
+            voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: 0.92 },
+          }),
+        },
+      );
+
+      if (!elevenRes.ok) {
+        const errText = await elevenRes.text().catch(() => "");
+        return new Response(
+          JSON.stringify({ error: "ElevenLabs TTS failed: " + errText.slice(0, 200) }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      return new Response(elevenRes.body, {
+        headers: { ...corsHeaders, "Content-Type": "audio/mpeg" },
+      });
+    }
 
     // ---- BACKGROUND TAGGING MODE ----
     // The frontend fires this after speaking its reply, without waiting on it.
