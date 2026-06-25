@@ -206,6 +206,50 @@
   }
   .reset-link:hover{ color: var(--text); }
 
+  .admin-modal{
+    position: fixed;
+    inset: 0;
+    background: rgba(3,4,10,0.75);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index: 20;
+    padding: 16px;
+  }
+  .admin-modal[hidden]{ display:none; }
+  .admin-card{
+    width:100%;
+    max-width: 420px;
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .admin-card-head{
+    display:flex;
+    justify-content: space-between;
+    align-items:center;
+    margin-bottom: 6px;
+  }
+  .admin-card h2{
+    font-family:'Space Grotesk', sans-serif;
+    font-size: 18px;
+    margin: 0 0 14px;
+  }
+  .admin-row{
+    display:flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--panel-edge);
+    font-size: 13px;
+  }
+  .admin-row:last-child{ border-bottom: none; }
+  .admin-row .email{ color: var(--text); word-break: break-all; }
+  .admin-row .nums{ color: var(--text-dim); font-family:'JetBrains Mono', monospace; font-size: 11.5px; text-align:right; white-space:nowrap; }
+
   .lang-btn:focus-visible, .mic-btn:focus-visible, .send-btn:focus-visible, .wake-overlay:focus-visible,
   #textInput:focus-visible, .reset-link:focus-visible, #loginBtn:focus-visible, #loginEmail:focus-visible{
     outline: 2px solid var(--cyan);
@@ -474,9 +518,21 @@
         <div class="text-link-row">
           <button class="reset-link" id="resetBtn">forget our chats</button>
           <button class="reset-link" id="signOutBtn">sign out</button>
+          <button class="reset-link" id="adminBtn" hidden>usage</button>
         </div>
       </div>
     </header>
+
+    <div class="admin-modal" id="adminModal" hidden>
+      <div class="admin-card">
+        <div class="admin-card-head">
+          <span class="eyebrow">admin</span>
+          <button class="reset-link" id="adminCloseBtn">close</button>
+        </div>
+        <h2>Token usage by person</h2>
+        <div id="adminBody"><p class="login-status">loading…</p></div>
+      </div>
+    </div>
 
     <main class="stage">
       <div class="core-wrap" id="coreWrap">
@@ -533,12 +589,16 @@
 <script>
 (function(){
   // ====== FILL THESE IN from Supabase: Project Settings -> API ======
-  const SUPABASE_URL = 'https://apvslzcldlqzskawpzzk.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_8hgovw8SLg4S4ZR2-p26Sg_v3CGpTPg';
+  const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY';
   // ====================================================================
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const EDGE_FUNCTION_URL = SUPABASE_URL + '/functions/v1/lumen-chat';
+
+  // Purely for showing/hiding the "usage" button — the real security check
+  // happens server-side in the Edge Function regardless of this.
+  const ADMIN_EMAIL = 'olawuyiabiodun01@gmail.com';
 
   const loginScreen = document.getElementById('loginScreen');
   const loginEmail = document.getElementById('loginEmail');
@@ -559,6 +619,10 @@
   const unsupportedNote = document.getElementById('unsupportedNote');
   const resetBtn = document.getElementById('resetBtn');
   const signOutBtn = document.getElementById('signOutBtn');
+  const adminBtn = document.getElementById('adminBtn');
+  const adminModal = document.getElementById('adminModal');
+  const adminBody = document.getElementById('adminBody');
+  const adminCloseBtn = document.getElementById('adminCloseBtn');
   const waveform = document.getElementById('waveform');
 
   const MAX_HISTORY = 24;
@@ -595,6 +659,8 @@
     if (session){
       loginScreen.setAttribute('hidden', '');
       appEl.removeAttribute('hidden');
+      const isAdmin = (session.user?.email || '').toLowerCase() === ADMIN_EMAIL;
+      adminBtn.toggleAttribute('hidden', !isAdmin);
     } else {
       loginScreen.removeAttribute('hidden');
       appEl.setAttribute('hidden', '');
@@ -643,6 +709,46 @@
 
   signOutBtn.addEventListener('click', async () => {
     await sb.auth.signOut();
+  });
+
+  adminBtn.addEventListener('click', async () => {
+    adminModal.removeAttribute('hidden');
+    adminBody.innerHTML = '<p class="login-status">loading…</p>';
+    try {
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token
+        },
+        body: JSON.stringify({ mode: 'admin_usage' })
+      });
+      const data = await res.json();
+      if (!res.ok){
+        adminBody.innerHTML = '<p class="login-status">error: ' + (data.error || res.status) + '</p>';
+        return;
+      }
+      const entries = Object.entries(data.summary || {});
+      if (!entries.length){
+        adminBody.innerHTML = '<p class="login-status">no usage logged yet</p>';
+        return;
+      }
+      entries.sort((a, b) => (b[1].input + b[1].output) - (a[1].input + a[1].output));
+      adminBody.innerHTML = entries.map(([userEmail, stats]) => {
+        const total = stats.input + stats.output;
+        return '<div class="admin-row"><span class="email">' + userEmail + '</span>' +
+          '<span class="nums">' + stats.messages + ' replies<br>' +
+          stats.input.toLocaleString() + ' in / ' + stats.output.toLocaleString() + ' out<br>' +
+          total.toLocaleString() + ' total</span></div>';
+      }).join('');
+    } catch (err){
+      console.error('admin usage fetch failed:', err);
+      adminBody.innerHTML = '<p class="login-status">error: ' + (err.message || String(err)) + '</p>';
+    }
+  });
+
+  adminCloseBtn.addEventListener('click', () => {
+    adminModal.setAttribute('hidden', '');
   });
 
   // ---------- UI HELPERS ----------
