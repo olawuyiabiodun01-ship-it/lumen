@@ -89,8 +89,12 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Allows the frontend to pick a different voice per practice language
+      // (e.g. a Yoruba-accented voice) without needing a separate function.
+      const voiceId = body.voiceId || ELEVENLABS_VOICE_ID;
+
       const elevenRes = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
         {
           method: "POST",
           headers: {
@@ -123,6 +127,7 @@ Deno.serve(async (req) => {
     // The frontend fires this after speaking its reply, without waiting on it.
     // It classifies whether a correction happened and logs the category.
     if (body.mode === "tag") {
+      const practiceLang = body.language === "yo" ? "Yoruba" : "German";
       const classifyRes = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -133,10 +138,10 @@ Deno.serve(async (req) => {
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 60,
-          system: 'You classify whether a German-practice correction happened in this exchange. ' +
+          system: 'You classify whether a ' + practiceLang + '-practice correction happened in this exchange. ' +
             'Reply with ONLY compact JSON, no prose, no markdown: {"mistake":true|false,"category":"short label"}. ' +
-            'Categories should be short and reusable, e.g. "der/die/das gender", "verb conjugation", "word order", "case endings", "separable verbs", "adjective endings". ' +
-            'If no real German mistake was corrected, return {"mistake":false,"category":""}.',
+            'Categories should be short and reusable — pick whatever grammatical category fits the language, e.g. for German: "der/die/das gender", "verb conjugation", "word order"; for Yoruba: "tone/pitch", "vowel length", "verb particle". ' +
+            'If no real ' + practiceLang + ' mistake was corrected, return {"mistake":false,"category":""}.',
           messages: [{
             role: "user",
             content: "Person said: " + (body.userText || "") + "\nLumen replied: " + (body.assistantText || ""),
@@ -158,6 +163,7 @@ Deno.serve(async (req) => {
           user_email: email,
           category: parsed.category,
           example: (body.userText || "").slice(0, 300),
+          language: body.language === "yo" ? "yo" : "de",
         });
       }
 
@@ -286,11 +292,13 @@ Deno.serve(async (req) => {
     // Check for recent recurring mistakes and gently nudge the system prompt,
     // without an extra LLM call — just one fast table lookup.
     let patternNote = "";
+    const currentLanguage = body.language === "yo" ? "yo" : "de";
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const { data: recent } = await supabase
       .from("mistake_log")
       .select("category")
       .eq("user_email", email)
+      .eq("language", currentLanguage)
       .gte("created_at", thirtyDaysAgo);
 
     if (recent && recent.length) {

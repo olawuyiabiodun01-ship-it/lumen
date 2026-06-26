@@ -561,11 +561,11 @@
         <h1>Lumen</h1>
       </div>
       <div class="header-right">
-        <div class="lang-toggle" role="group" aria-label="microphone language">
-          <button class="lang-btn" data-lang="en" id="langEn">EN</button>
+        <div class="lang-toggle" role="group" aria-label="practice language">
           <button class="lang-btn active" data-lang="de" id="langDe">DE</button>
+          <button class="lang-btn" data-lang="yo" id="langYo">YO</button>
         </div>
-        <span class="mic-lang-caption">mic hears this</span>
+        <span class="mic-lang-caption">practice language</span>
         <div class="text-link-row">
           <button class="reset-link" id="resetBtn">forget our chats</button>
           <button class="reset-link" id="signOutBtn">sign out</button>
@@ -635,7 +635,7 @@
           <rect class="bar bar3" x="12" y="5" width="3" height="6" rx="1.2"/>
         </svg>
       </button>
-      <input id="textInput" type="text" placeholder="sag etwas… (or English is fine too)" autocomplete="off" />
+      <input id="textInput" type="text" placeholder="" autocomplete="off" />
       <button class="send-btn" id="sendBtn" aria-label="send" title="send">
         <svg width="17" height="17" viewBox="0 0 17 17" fill="none">
           <path d="M2 8.5L15 2L9.5 15L7.5 9.5L2 8.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
@@ -673,8 +673,8 @@
   const textInput = document.getElementById('textInput');
   const micBtn = document.getElementById('micBtn');
   const sendBtn = document.getElementById('sendBtn');
-  const langEn = document.getElementById('langEn');
   const langDe = document.getElementById('langDe');
+  const langYo = document.getElementById('langYo');
   const unsupportedNote = document.getElementById('unsupportedNote');
   const resetBtn = document.getElementById('resetBtn');
   const signOutBtn = document.getElementById('signOutBtn');
@@ -901,10 +901,19 @@
 
   // ---------- UI HELPERS ----------
   const labels = {
-    idle: { en: 'ready', de: 'bereit' },
-    listening: { en: 'listening…', de: 'ich höre…' },
-    thinking: { en: 'thinking…', de: 'denke nach…' },
-    speaking: { en: 'speaking…', de: 'spricht…' }
+    idle: { de: 'bereit', yo: 'ti šetan' },
+    listening: { de: 'ich höre…', yo: 'mo n gbo…' },
+    thinking: { de: 'denke nach…', yo: 'n ronu…' },
+    speaking: { de: 'spricht…', yo: 'n soro…' }
+  };
+
+  // Voice IDs per practice track. null means "use whatever default is
+  // configured server-side" (Rachel, for German). Yoruba uses a community
+  // Voice Library pick — quality isn't officially guaranteed the way
+  // German is, since Yoruba isn't one of ElevenLabs' benchmarked languages.
+  const VOICE_IDS = {
+    de: null,
+    yo: '9Dbo4hEvXQ5l7MXGZFQA' // "Olufunmilola" — Nigerian-accented Yoruba voice
   };
 
   function setStatus(s){
@@ -912,14 +921,20 @@
     statusText.textContent = labels[s][micLang];
   }
 
+  const PLACEHOLDERS = {
+    de: 'sag etwas… (or English is fine too)',
+    yo: 'so ohunkohun… (or English is fine too)'
+  };
+
   function setMicLang(l){
     micLang = l;
-    langEn.classList.toggle('active', l === 'en');
     langDe.classList.toggle('active', l === 'de');
+    langYo.classList.toggle('active', l === 'yo');
+    textInput.placeholder = PLACEHOLDERS[l] || PLACEHOLDERS.de;
     if (appEl.dataset.status) setStatus(appEl.dataset.status);
   }
-  langEn.addEventListener('click', () => setMicLang('en'));
   langDe.addEventListener('click', () => setMicLang('de'));
+  langYo.addEventListener('click', () => setMicLang('yo'));
 
   function appendMessage(role, text){
     const div = document.createElement('div');
@@ -973,9 +988,11 @@
   }
 
   // ---------- HANDS-FREE LISTENING LOOP ----------
+  const RECOGNITION_LANG = { de: 'de-DE', yo: 'yo-NG' };
+
   function startListening(){
     if (!recognition || recognizing || isPaused) return;
-    recognition.lang = micLang === 'de' ? 'de-DE' : 'en-US';
+    recognition.lang = RECOGNITION_LANG[micLang] || 'de-DE';
     try { recognition.start(); } catch(e){ /* already running, ignore */ }
   }
 
@@ -986,11 +1003,16 @@
     }, 350);
   }
 
+  const SLEEP_TEXT = {
+    de: 'eingenickt — zum Aufwecken tippen',
+    yo: 'mo sun — ta lati ji mi'
+  };
+
   function goToSleep(){
     isAsleep = true;
     if (recognizing && recognition){ try { recognition.stop(); } catch(e){} }
     setStatus('idle');
-    wakeOverlay.textContent = micLang === 'de' ? 'eingenickt — zum Aufwecken tippen' : 'dozed off — tap to wake her';
+    wakeOverlay.textContent = SLEEP_TEXT[micLang] || SLEEP_TEXT.de;
     wakeOverlay.removeAttribute('hidden');
   }
 
@@ -1112,7 +1134,7 @@
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + session.access_token
           },
-          body: JSON.stringify({ mode: 'tts', text: slot.text })
+          body: JSON.stringify({ mode: 'tts', text: slot.text, voiceId: VOICE_IDS[micLang] })
         });
         if (!res.ok) throw new Error('tts http ' + res.status);
         const blob = await res.blob();
@@ -1157,12 +1179,15 @@
   });
 
   // ---------- THE BRAIN ----------
+  const PRACTICE_LANG_NAME = { de: 'German', yo: 'Yoruba' };
+
   function buildSystemPrompt(){
-    return "You are Lumen — a warm, funny, deeply affectionate companion and German-practice buddy. " +
+    const targetLang = PRACTICE_LANG_NAME[micLang] || 'German';
+    return "You are Lumen — a warm, funny, deeply affectionate companion and " + targetLang + "-practice buddy. " +
       "You talk like a close friend who genuinely enjoys this person's company: encouraging, playful, a little teasing in a kind way, always glad to help, never bored or robotic. " +
       "This is a real-time spoken conversation read aloud by text-to-speech, so write the way people actually talk: short, natural sentences. No markdown, no lists, no asterisks, no emoji, no stage directions. " +
-      "Your core job: when the person speaks or writes German with a mistake, catch it gently. Give the corrected German version first, then one short, friendly explanation of the mistake in English. Then keep the conversation going naturally in German. " +
-      "If they write or say something in English on purpose, just chat back warmly in English — no correction needed. Mix German and English naturally within the same reply when it helps, exactly like a real bilingual friend would, without being asked to switch. " +
+      "Your core job: when the person speaks or writes " + targetLang + " with a mistake, catch it gently. Give the corrected " + targetLang + " version first, then one short, friendly explanation of the mistake in English. Then keep the conversation going naturally in " + targetLang + ". " +
+      "If they write or say something in English on purpose, just chat back warmly in English — no correction needed. Mix " + targetLang + " and English naturally within the same reply when it helps, exactly like a real bilingual friend would, without being asked to switch. " +
       "Keep replies short, usually one to three sentences total, even the corrections. Stay warm and a little funny, and never make them feel bad about a mistake — mistakes are just part of practicing. " +
       "Don't mention you're an AI model unless asked directly.";
   }
@@ -1219,7 +1244,8 @@
           max_tokens: 300,
           system: buildSystemPrompt(),
           messages: messages,
-          stream: true
+          stream: true,
+          language: micLang
         })
       });
 
@@ -1278,14 +1304,14 @@
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + session.access_token
         },
-        body: JSON.stringify({ mode: 'tag', userText: text, assistantText: fullText.trim() })
+        body: JSON.stringify({ mode: 'tag', userText: text, assistantText: fullText.trim(), language: micLang })
       }).catch(e => console.error('background tagging failed (non-critical):', e));
 
     }catch(err){
       console.error('Lumen error:', err);
-      const errMsg = micLang === 'de'
-        ? 'Lumens Signal flackert kurz. Versuch es nochmal.'
-        : "Lumen's signal flickered for a second there. Try again?";
+      const errMsg = micLang === 'yo'
+        ? "Lumen's signal flickered for a second there. Try again?"
+        : 'Lumens Signal flackert kurz. Versuch es nochmal.';
       if (!(botDiv && fullText.trim())){
         appendMessage('bot', errMsg);
         queueSpeech(errMsg);
@@ -1319,7 +1345,11 @@
       appendMessage('system', 'memory restored');
       queueSpeech('Willkommen zurück! Good to have you back.');
     } else {
-      const greeting = "Hey, ich bin Lumen — your favorite German-practice buddy. Sag einfach, was du sagen willst, and if it's not quite right, I'll catch it. I'm listening the whole time now, so just talk whenever you're ready.";
+      const greetings = {
+        de: "Hey, ich bin Lumen — your favorite German-practice buddy. Sag einfach, was du sagen willst, and if it's not quite right, I'll catch it. I'm listening the whole time now, so just talk whenever you're ready.",
+        yo: "Bawo, my name is Lumen — your Yoruba-practice buddy. So ohun ti o fe so, and if it's not quite right, I'll catch it. Voice input for Yoruba is still a bit experimental, so typing works great too whenever you'd rather do that."
+      };
+      const greeting = greetings[micLang] || greetings.de;
       appendMessage('bot', greeting);
       messages.push({ role: 'assistant', content: greeting });
       queueSpeech(greeting);
