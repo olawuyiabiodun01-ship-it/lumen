@@ -311,7 +311,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    const augmentedBody = { ...body, system: (body.system || "") + patternNote };
+    // Strip fields that are not part of the Anthropic Messages API before forwarding.
+    const { language: _lang, mode: _mode, ...anthropicFields } = body;
+    const augmentedBody = { ...anthropicFields, system: (body.system || "") + patternNote };
 
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
