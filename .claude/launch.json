@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "memorial",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "3030", "--directory", "C:\\Users\\Adetunji\\Desktop\\MAMA-MEMORIAL"],
+      "port": 3030
+    }
+  ]
+}
