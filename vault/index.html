@@ -11,16 +11,23 @@
 <meta name="theme-color" content="#141019">
 <style>
   :root{
-    --bg:#141019; --panel:#1e1826; --panel-2:#272033; --line:#3a3049;
-    --text:#f2edf7; --muted:#a99cbb; --gold:#e8b64c; --danger:#e06b6b;
+    --bg:#141019; --panel:rgba(30,24,38,.78); --panel-2:rgba(39,32,51,.82); --line:#4a3f5e;
+    --text:#f2edf7; --muted:#bfb2d1; --gold:#e8b64c; --danger:#e06b6b;
   }
   *{box-sizing:border-box; margin:0; padding:0}
   html,body{height:100%}
   body{
     font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
     background:var(--bg); color:var(--text);
-    background-image:radial-gradient(1200px 600px at 50% -10%, #2a2138 0%, var(--bg) 60%);
     min-height:100dvh;
+  }
+  /* the whole family, holding the vault together */
+  body::before{
+    content:''; position:fixed; inset:0; z-index:-1;
+    background:
+      linear-gradient(rgba(20,16,25,.42), rgba(20,16,25,.6)),
+      url(family-bg.jpg) center/cover no-repeat,
+      var(--bg);
   }
   .wrap{max-width:680px; margin:0 auto; padding:20px 16px calc(40px + env(safe-area-inset-bottom))}
   .hidden{display:none !important}
@@ -29,16 +36,17 @@
   /* ---------- login ---------- */
   #login{display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100dvh; padding:24px; text-align:center}
   .crest{
-    width:88px; height:88px; border-radius:26px; display:flex; align-items:center; justify-content:center;
-    background:linear-gradient(145deg,#3b2f52,#241c33); border:1px solid var(--line);
-    font-size:42px; margin-bottom:18px; box-shadow:0 12px 40px rgba(0,0,0,.45);
+    width:96px; height:96px; border-radius:50%; overflow:hidden;
+    border:2px solid var(--gold); margin-bottom:18px; box-shadow:0 12px 40px rgba(0,0,0,.55);
   }
+  .crest img{width:100%; height:100%; object-fit:cover; display:block}
   #login h1{font-size:26px; letter-spacing:.3px}
   #login .sub{color:var(--muted); margin:8px 0 28px; font-size:15px}
   .pwrow{display:flex; gap:8px; width:100%; max-width:360px}
   .pwrow input{
     flex:1; padding:14px 16px; border-radius:14px; border:1px solid var(--line);
     background:var(--panel); color:var(--text); font-size:16px; outline:none;
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   .pwrow input:focus{border-color:var(--gold)}
   .btn-gold{
@@ -57,6 +65,7 @@
   .card{
     text-align:left; background:var(--panel); border:1px solid var(--line); border-radius:18px;
     padding:18px 16px; display:flex; flex-direction:column; gap:10px; transition:transform .1s, border-color .15s;
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   .card:active{transform:scale(.98)}
   .card:hover{border-color:var(--accent)}
@@ -77,14 +86,17 @@
   .btn-plain{
     flex:1; text-align:center; padding:14px 12px; border-radius:14px; font-size:15px;
     background:var(--panel-2); border:1px solid var(--line);
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   #search{
     width:100%; padding:12px 16px; border-radius:14px; border:1px solid var(--line);
     background:var(--panel); color:var(--text); font-size:15px; outline:none; margin-bottom:14px;
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   .file{
     display:flex; align-items:center; gap:12px; background:var(--panel);
     border:1px solid var(--line); border-radius:16px; padding:12px 14px; margin-bottom:10px;
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   .ficon{
     width:44px; height:44px; border-radius:12px; flex:none; overflow:hidden;
@@ -111,7 +123,7 @@
 
 <!-- Password gate -->
 <div id="login">
-  <div class="crest">🗝️</div>
+  <div class="crest"><img src="icon-192.png" alt=""></div>
   <h1>Olawuyi Family Vault</h1>
   <p class="sub">Receipts &amp; special documents, kept safe for the four of us.</p>
   <form class="pwrow" id="login-form">
