@@ -1,0 +1,16 @@
+{
+  "name": "Olawuyi Family Vault",
+  "short_name": "Family Vault",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#141019",
+  "theme_color": "#141019",
+  "description": "A private vault for the Olawuyi family's receipts and special documents.",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

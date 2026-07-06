@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Olawuyi Family Vault</title>
+<meta name="description" content="A private vault for the Olawuyi family's receipts and special documents.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#141019">
+<style>
+  :root{
+    --bg:#141019; --panel:#1e1826; --panel-2:#272033; --line:#3a3049;
+    --text:#f2edf7; --muted:#a99cbb; --gold:#e8b64c; --danger:#e06b6b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    background:var(--bg); color:var(--text);
+    background-image:radial-gradient(1200px 600px at 50% -10%, #2a2138 0%, var(--bg) 60%);
+    min-height:100dvh;
+  }
+  .wrap{max-width:680px; margin:0 auto; padding:20px 16px calc(40px + env(safe-area-inset-bottom))}
+  .hidden{display:none !important}
+  button{font:inherit; cursor:pointer; border:none; color:inherit; background:none}
+
+  /* ---------- login ---------- */
+  #login{display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100dvh; padding:24px; text-align:center}
+  .crest{
+    width:88px; height:88px; border-radius:26px; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(145deg,#3b2f52,#241c33); border:1px solid var(--line);
+    font-size:42px; margin-bottom:18px; box-shadow:0 12px 40px rgba(0,0,0,.45);
+  }
+  #login h1{font-size:26px; letter-spacing:.3px}
+  #login .sub{color:var(--muted); margin:8px 0 28px; font-size:15px}
+  .pwrow{display:flex; gap:8px; width:100%; max-width:360px}
+  .pwrow input{
+    flex:1; padding:14px 16px; border-radius:14px; border:1px solid var(--line);
+    background:var(--panel); color:var(--text); font-size:16px; outline:none;
+  }
+  .pwrow input:focus{border-color:var(--gold)}
+  .btn-gold{
+    background:var(--gold); color:#241a05; font-weight:600; padding:14px 20px;
+    border-radius:14px; transition:transform .1s;
+  }
+  .btn-gold:active{transform:scale(.97)}
+  #login-err{color:var(--danger); min-height:22px; margin-top:14px; font-size:14px}
+
+  /* ---------- home ---------- */
+  header{display:flex; align-items:center; justify-content:space-between; margin-bottom:22px}
+  header h1{font-size:21px}
+  header .small{color:var(--muted); font-size:13px; margin-top:3px}
+  .link{color:var(--muted); font-size:13px; text-decoration:underline; padding:6px}
+  .cards{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  .card{
+    text-align:left; background:var(--panel); border:1px solid var(--line); border-radius:18px;
+    padding:18px 16px; display:flex; flex-direction:column; gap:10px; transition:transform .1s, border-color .15s;
+  }
+  .card:active{transform:scale(.98)}
+  .card:hover{border-color:var(--accent)}
+  .card.family{grid-column:1 / -1; flex-direction:row; align-items:center}
+  .avatar{
+    width:46px; height:46px; border-radius:50%; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:18px; color:#1b1424; background:var(--accent);
+  }
+  .card .name{font-weight:600; font-size:17px}
+  .card .role{color:var(--muted); font-size:13px}
+
+  /* ---------- member view ---------- */
+  .member-head{display:flex; align-items:center; gap:12px; margin-bottom:18px}
+  .back{font-size:22px; padding:6px 10px 6px 0; color:var(--muted)}
+  .actions{display:flex; gap:10px; margin-bottom:16px}
+  .actions .btn-gold{flex:1; text-align:center; font-size:15px}
+  .btn-plain{
+    flex:1; text-align:center; padding:14px 12px; border-radius:14px; font-size:15px;
+    background:var(--panel-2); border:1px solid var(--line);
+  }
+  #search{
+    width:100%; padding:12px 16px; border-radius:14px; border:1px solid var(--line);
+    background:var(--panel); color:var(--text); font-size:15px; outline:none; margin-bottom:14px;
+  }
+  .file{
+    display:flex; align-items:center; gap:12px; background:var(--panel);
+    border:1px solid var(--line); border-radius:16px; padding:12px 14px; margin-bottom:10px;
+  }
+  .ficon{
+    width:44px; height:44px; border-radius:12px; flex:none; overflow:hidden;
+    background:var(--panel-2); display:flex; align-items:center; justify-content:center; font-size:22px;
+  }
+  .ficon img{width:100%; height:100%; object-fit:cover}
+  .fmeta{flex:1; min-width:0; cursor:pointer}
+  .fname{font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .fsub{color:var(--muted); font-size:12.5px; margin-top:3px}
+  .fdel{color:var(--muted); font-size:17px; padding:10px}
+  .fdel:hover{color:var(--danger)}
+  .empty{color:var(--muted); text-align:center; padding:48px 20px; font-size:15px; line-height:1.6}
+
+  #toast{
+    position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    padding:12px 20px; border-radius:14px; font-size:14px; max-width:88vw;
+    box-shadow:0 10px 30px rgba(0,0,0,.5); transition:opacity .25s; opacity:0; pointer-events:none;
+  }
+  #toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- Password gate -->
+<div id="login">
+  <div class="crest">🗝️</div>
+  <h1>Olawuyi Family Vault</h1>
+  <p class="sub">Receipts &amp; special documents, kept safe for the four of us.</p>
+  <form class="pwrow" id="login-form">
+    <input id="pw" type="password" placeholder="Family password" autocomplete="current-password">
+    <button class="btn-gold" type="submit">Open</button>
+  </form>
+  <p id="login-err"></p>
+</div>
+
+<!-- Home: pick a person -->
+<div id="home" class="wrap hidden">
+  <header>
+    <div>
+      <h1>Family Vault</h1>
+      <p class="small">Whose documents?</p>
+    </div>
+    <button class="link" id="logout">Lock vault</button>
+  </header>
+  <div class="cards" id="cards"></div>
+</div>
+
+<!-- One member's space -->
+<div id="member" class="wrap hidden">
+  <div class="member-head">
+    <button class="back" id="back">←</button>
+    <div class="avatar" id="m-avatar"></div>
+    <div>
+      <div class="name" id="m-name" style="font-weight:600; font-size:18px"></div>
+      <div class="role" id="m-count" style="color:var(--muted); font-size:13px"></div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn-gold" id="snap">📷 Snap receipt</button>
+    <button class="btn-plain" id="add">＋ Add file</button>
+  </div>
+  <input id="search" type="search" placeholder="Search this space…">
+  <div id="files"></div>
+  <input type="file" id="file-cam" accept="image/*" capture="environment" class="hidden">
+  <input type="file" id="file-any" multiple class="hidden">
+</div>
+
+<div id="toast"></div>
+
+<script>
+const FN_URL = 'https://apvslzcldlqzskawpzzk.supabase.co/functions/v1/family-vault';
+
+const MEMBERS = [
+  { id:'abiodun',  name:'Abiodun',  role:'Dad',        color:'#e8b64c', emoji:'A' },
+  { id:'adeola',   name:'Adeola',   role:'Mum',        color:'#e88fb4', emoji:'A' },
+  { id:'jadesola', name:'Jadesola', role:'First born', color:'#8fd0e8', emoji:'J' },
+  { id:'motilayo', name:'Motilayo', role:'Last born',  color:'#a5e88f', emoji:'M' },
+  { id:'family',   name:'Family',   role:'Shared — things that belong to all of us', color:'#c5aef2', emoji:'❤', family:true },
+];
+
+let password = localStorage.getItem('vault-password') || '';
+let current = null;         // member object currently open
+let currentFiles = [];      // last fetched list for the open member
+
+const $ = (id) => document.getElementById(id);
+
+function toast(msg, ms = 2600){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+async function api(action, extra = {}){
+  const res = await fetch(FN_URL, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ action, password, ...extra }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  return data;
+}
+
+/* ---------- views ---------- */
+function show(view){
+  for (const v of ['login','home','member']) $(v).classList.toggle('hidden', v !== view);
+}
+
+function renderHome(){
+  const box = $('cards');
+  box.innerHTML = '';
+  for (const m of MEMBERS){
+    const b = document.createElement('button');
+    b.className = 'card' + (m.family ? ' family' : '');
+    b.style.setProperty('--accent', m.color);
+    b.innerHTML = `<div class="avatar">${m.emoji}</div>
+      <div><div class="name">${m.name}</div><div class="role">${m.role}</div></div>`;
+    b.onclick = () => openMember(m);
+    box.appendChild(b);
+  }
+  show('home');
+}
+
+async function openMember(m){
+  current = m;
+  $('m-avatar').style.background = m.color;
+  $('m-avatar').textContent = m.emoji;
+  $('m-name').textContent = m.family ? 'Family — shared' : `${m.name}’s space`;
+  $('m-count').textContent = 'Loading…';
+  $('search').value = '';
+  $('files').innerHTML = '';
+  show('member');
+  await refresh();
+}
+
+async function refresh(){
+  try{
+    const { files } = await api('list', { member: current.id });
+    currentFiles = files;
+    renderFiles();
+  }catch(e){
+    $('m-count').textContent = '';
+    toast(e.message);
+  }
+}
+
+function fmtSize(b){
+  if (!b) return '';
+  if (b < 1024*1024) return Math.max(1, Math.round(b/1024)) + ' KB';
+  return (b/1024/1024).toFixed(1) + ' MB';
+}
+function fmtDate(iso){
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' });
+}
+function iconFor(f){
+  if (f.type.startsWith('image/')) return '🧾';
+  if (f.type === 'application/pdf') return '📄';
+  if (/word|text/.test(f.type)) return '📝';
+  return '📎';
+}
+
+function renderFiles(){
+  const q = $('search').value.trim().toLowerCase();
+  const list = currentFiles.filter(f => !q || f.name.toLowerCase().includes(q));
+  $('m-count').textContent = currentFiles.length
+    ? `${currentFiles.length} item${currentFiles.length === 1 ? '' : 's'}`
+    : 'Nothing here yet';
+
+  const box = $('files');
+  box.innerHTML = '';
+  if (!list.length){
+    box.innerHTML = `<div class="empty">${
+      q ? 'No matches.' : 'This space is empty.<br>Snap a receipt or add a document to get started.'
+    }</div>`;
+    return;
+  }
+  for (const f of list){
+    const row = document.createElement('div');
+    row.className = 'file';
+    row.innerHTML = `<div class="ficon">${iconFor(f)}</div>
+      <div class="fmeta">
+        <div class="fname">${f.name.replace(/</g,'&lt;')}</div>
+        <div class="fsub">${fmtDate(f.created)}${f.size ? ' · ' + fmtSize(f.size) : ''}</div>
+      </div>
+      <button class="fdel" title="Delete">🗑</button>`;
+    row.querySelector('.fmeta').onclick = () => openFile(f);
+    row.querySelector('.fdel').onclick = () => removeFile(f);
+    box.appendChild(row);
+    // Small photo preview for images
+    if (f.type.startsWith('image/')){
+      api('file-url', { path: f.path }).then(({ url }) => {
+        row.querySelector('.ficon').innerHTML = `<img src="${url}" alt="">`;
+      }).catch(() => {});
+    }
+  }
+}
+
+async function openFile(f){
+  // Open the tab first so mobile browsers don't block it as a popup
+  const tab = window.open('about:blank');
+  try{
+    const { url } = await api('file-url', { path: f.path });
+    if (tab) tab.location = url; else window.location = url;
+  }catch(e){
+    if (tab) tab.close();
+    toast(e.message);
+  }
+}
+
+async function removeFile(f){
+  if (!confirm(`Delete “${f.name}”?\nThis cannot be undone.`)) return;
+  try{
+    await api('delete', { path: f.path });
+    toast('Deleted');
+    await refresh();
+  }catch(e){ toast(e.message); }
+}
+
+async function uploadFiles(fileList){
+  const files = [...fileList];
+  for (let i = 0; i < files.length; i++){
+    const f = files[i];
+    toast(files.length > 1 ? `Uploading ${i+1} of ${files.length}…` : `Uploading ${f.name}…`, 60000);
+    try{
+      const { signedUrl } = await api('upload-url', { member: current.id, filename: f.name });
+      const put = await fetch(signedUrl, {
+        method:'PUT',
+        headers:{ 'Content-Type': f.type || 'application/octet-stream' },
+        body: f,
+      });
+      if (!put.ok) throw new Error('Upload failed — try again');
+    }catch(e){
+      toast(e.message);
+      await refresh();
+      return;
+    }
+  }
+  toast(files.length > 1 ? `${files.length} files saved ✓` : 'Saved ✓');
+  await refresh();
+}
+
+/* ---------- wiring ---------- */
+$('login-form').onsubmit = async (ev) => {
+  ev.preventDefault();
+  const val = $('pw').value;
+  if (!val) return;
+  $('login-err').textContent = '';
+  password = val;
+  try{
+    await api('login');
+    localStorage.setItem('vault-password', password);
+    renderHome();
+  }catch(e){
+    password = '';
+    $('login-err').textContent = e.message === 'Wrong password'
+      ? 'That’s not the family password — try again.' : e.message;
+  }
+};
+
+$('logout').onclick = () => {
+  localStorage.removeItem('vault-password');
+  password = '';
+  $('pw').value = '';
+  show('login');
+};
+
+$('back').onclick = renderHome;
+$('search').oninput = renderFiles;
+$('snap').onclick = () => $('file-cam').click();
+$('add').onclick  = () => $('file-any').click();
+$('file-cam').onchange = (e) => { if (e.target.files.length) uploadFiles(e.target.files); e.target.value=''; };
+$('file-any').onchange = (e) => { if (e.target.files.length) uploadFiles(e.target.files); e.target.value=''; };
+
+/* ---------- start ---------- */
+(async () => {
+  if (password){
+    try{ await api('login'); renderHome(); return; }
+    catch{ localStorage.removeItem('vault-password'); password=''; }
+  }
+  show('login');
+})();
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
