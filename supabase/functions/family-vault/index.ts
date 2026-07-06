@@ -82,6 +82,19 @@ Deno.serve(async (req) => {
       case "login":
         return json({ ok: true });
 
+      // Family photos used by the app's own UI. They live in the private
+      // bucket (under _app/) so they are only visible after unlocking.
+      case "assets": {
+        const [bg, emblem] = await Promise.all([
+          supabase.storage.from(BUCKET).createSignedUrl("_app/family-bg.jpg", 3600),
+          supabase.storage.from(BUCKET).createSignedUrl("_app/emblem.png", 3600),
+        ]);
+        return json({
+          bg: bg.data?.signedUrl ?? null,
+          emblem: emblem.data?.signedUrl ?? null,
+        });
+      }
+
       case "list": {
         if (!MEMBERS.includes(body.member)) {
           return json({ error: "Unknown member" }, 400);
@@ -104,14 +117,18 @@ Deno.serve(async (req) => {
       }
 
       case "upload-url": {
-        if (!MEMBERS.includes(body.member)) {
+        // "_app" holds the app's own UI photos — fixed names, overwritable
+        const isApp = body.member === "_app";
+        if (!isApp && !MEMBERS.includes(body.member)) {
           return json({ error: "Unknown member" }, 400);
         }
-        const path = `${body.member}/${Date.now()}-${
-          sanitizeName(body.filename ?? "file")
-        }`;
+        const path = isApp
+          ? `_app/${sanitizeName(body.filename ?? "file")}`
+          : `${body.member}/${Date.now()}-${
+            sanitizeName(body.filename ?? "file")
+          }`;
         const { data, error } = await supabase.storage.from(BUCKET)
-          .createSignedUploadUrl(path);
+          .createSignedUploadUrl(path, { upsert: true });
         if (error) throw error;
         return json({ path, signedUrl: data.signedUrl });
       }

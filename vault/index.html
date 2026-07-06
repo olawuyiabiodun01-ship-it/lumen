@@ -21,12 +21,16 @@
     background:var(--bg); color:var(--text);
     min-height:100dvh;
   }
-  /* the whole family, holding the vault together */
   body::before{
     content:''; position:fixed; inset:0; z-index:-1;
+    background:radial-gradient(1200px 600px at 50% -10%, #2a2138 0%, var(--bg) 60%);
+  }
+  /* once unlocked, the whole family holds the vault together —
+     the photo arrives via a signed URL, never from public files */
+  body.has-photo::before{
     background:
       linear-gradient(rgba(20,16,25,.42), rgba(20,16,25,.6)),
-      url(family-bg.jpg) center/cover no-repeat,
+      var(--photo-url) center/cover no-repeat,
       var(--bg);
   }
   .wrap{max-width:680px; margin:0 auto; padding:20px 16px calc(40px + env(safe-area-inset-bottom))}
@@ -36,10 +40,14 @@
   /* ---------- login ---------- */
   #login{display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100dvh; padding:24px; text-align:center}
   .crest{
-    width:96px; height:96px; border-radius:50%; overflow:hidden;
-    border:2px solid var(--gold); margin-bottom:18px; box-shadow:0 12px 40px rgba(0,0,0,.55);
+    width:88px; height:88px; border-radius:26px; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(145deg,#3b2f52,#241c33); border:1px solid var(--line);
+    font-size:42px; margin-bottom:18px; box-shadow:0 12px 40px rgba(0,0,0,.45);
   }
-  .crest img{width:100%; height:100%; object-fit:cover; display:block}
+  #emblem{
+    width:48px; height:48px; border-radius:50%; object-fit:cover;
+    border:2px solid var(--gold); flex:none;
+  }
   #login h1{font-size:26px; letter-spacing:.3px}
   #login .sub{color:var(--muted); margin:8px 0 28px; font-size:15px}
   .pwrow{display:flex; gap:8px; width:100%; max-width:360px}
@@ -123,7 +131,7 @@
 
 <!-- Password gate -->
 <div id="login">
-  <div class="crest"><img src="icon-192.png" alt=""></div>
+  <div class="crest">🗝️</div>
   <h1>Olawuyi Family Vault</h1>
   <p class="sub">Receipts &amp; special documents, kept safe for the four of us.</p>
   <form class="pwrow" id="login-form">
@@ -136,9 +144,12 @@
 <!-- Home: pick a person -->
 <div id="home" class="wrap hidden">
   <header>
-    <div>
-      <h1>Family Vault</h1>
-      <p class="small">Whose documents?</p>
+    <div style="display:flex; align-items:center; gap:12px">
+      <img id="emblem" class="hidden" alt="">
+      <div>
+        <h1>Family Vault</h1>
+        <p class="small">Whose documents?</p>
+      </div>
     </div>
     <button class="link" id="logout">Lock vault</button>
   </header>
@@ -342,6 +353,26 @@ async function uploadFiles(fileList){
   await refresh();
 }
 
+/* Fetch the family photos (signed URLs) only after unlocking, then paint
+   them into the background and the home-screen emblem. Fetched once per session. */
+let assetsLoaded = false;
+async function loadAssets(){
+  if (assetsLoaded) return;
+  try{
+    const { bg, emblem } = await api('assets');
+    if (bg){
+      document.body.style.setProperty('--photo-url', `url("${bg}")`);
+      document.body.classList.add('has-photo');
+    }
+    if (emblem){
+      const el = $('emblem');
+      el.src = emblem;
+      el.classList.remove('hidden');
+    }
+    assetsLoaded = true;
+  }catch{ /* photos are optional decoration — ignore if unavailable */ }
+}
+
 /* ---------- wiring ---------- */
 $('login-form').onsubmit = async (ev) => {
   ev.preventDefault();
@@ -352,6 +383,7 @@ $('login-form').onsubmit = async (ev) => {
   try{
     await api('login');
     localStorage.setItem('vault-password', password);
+    loadAssets();
     renderHome();
   }catch(e){
     password = '';
@@ -364,6 +396,12 @@ $('logout').onclick = () => {
   localStorage.removeItem('vault-password');
   password = '';
   $('pw').value = '';
+  // strip the family photos back out so they never linger on the lock screen
+  document.body.classList.remove('has-photo');
+  document.body.style.removeProperty('--photo-url');
+  $('emblem').classList.add('hidden');
+  $('emblem').removeAttribute('src');
+  assetsLoaded = false;
   show('login');
 };
 
@@ -377,7 +415,7 @@ $('file-any').onchange = (e) => { if (e.target.files.length) uploadFiles(e.targe
 /* ---------- start ---------- */
 (async () => {
   if (password){
-    try{ await api('login'); renderHome(); return; }
+    try{ await api('login'); loadAssets(); renderHome(); return; }
     catch{ localStorage.removeItem('vault-password'); password=''; }
   }
   show('login');
