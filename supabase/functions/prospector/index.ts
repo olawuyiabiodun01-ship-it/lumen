@@ -81,6 +81,63 @@ function glFor(location: string): string | undefined {
   return undefined;
 }
 
+// Addresses that are never a real human contact (system/asset/placeholder).
+const EMAIL_NOISE =
+  /(no-?reply|do-?not-?reply|example\.|sentry|wixpress|@2x|\.(png|jpg|jpeg|gif|webp|svg)|wordpress|placeholder|yourdomain|your-?email|domain\.com|test@|@email\.|u003e|u003c)/i;
+const GENERIC_LOCALPARTS = ["info", "hello", "contact", "sales", "admin", "support", "hi", "team", "enquiries", "enquiry", "office", "mail", "hey"];
+
+async function fetchText(url: string, ms = 8000): Promise<string> {
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), ms);
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; LumenSDR/1.0)" },
+    });
+    clearTimeout(t);
+    if (!res.ok) return "";
+    return await res.text();
+  } catch { return ""; }
+}
+
+// Fallback email source for SMBs that Hunter doesn't index: scrape the company's
+// own site (home + common contact pages) for published addresses. No API needed.
+async function scrapeCompanyEmails(domain: string): Promise<any[]> {
+  const base = `https://${domain}`;
+  const paths = ["", "/contact", "/contact-us", "/about", "/about-us"];
+  const found = new Set<string>();
+  for (const p of paths) {
+    if (found.size >= 3) break;
+    const html = await fetchText(base + p);
+    if (!html) continue;
+    // Also catch "mailto:" and obfuscated "name (at) domain" is out of scope; keep it simple.
+    const matches = html.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+    for (const raw of matches) {
+      const e = raw.toLowerCase();
+      if (EMAIL_NOISE.test(e)) continue;
+      const edom = e.split("@")[1] || "";
+      const onDomain = edom === domain || edom.endsWith("." + domain) || domain.endsWith("." + edom);
+      const freeProvider = /^(gmail|yahoo|outlook|hotmail|icloud|proton(mail)?)\./.test(edom) ||
+        /(gmail|yahoo|outlook|hotmail|icloud|protonmail)\.com$/.test(edom);
+      if (!onDomain && !freeProvider) continue;
+      found.add(e);
+      if (found.size >= 3) break;
+    }
+  }
+  return [...found].map((e) => {
+    const local = e.split("@")[0];
+    const generic = GENERIC_LOCALPARTS.includes(local);
+    return {
+      name: generic ? "(company inbox)" : local.replace(/[._-]+/g, " "),
+      title: "",
+      email: e,
+      linkedin: "",
+      confidence: null,
+      via: "website",
+    };
+  });
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type",
@@ -397,9 +454,11 @@ Deno.serve(async (req) => {
       // the free rate limit; failures on one company don't sink the others.
       const people: any[] = [];
       let lookupsCounted = 0;
+      let scrapedCount = 0;
       for (const co of companies) {
         const domain = String(co.domain).replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
         if (!domain) continue;
+        let gotFromHunter = false;
         try {
           const url = `${HUNTER_BASE}/domain-search?domain=${encodeURIComponent(domain)}&type=personal&limit=10`;
           const hRes = await fetch(url, { headers: { "X-API-KEY": HUNTER_API_KEY } });
@@ -410,27 +469,35 @@ Deno.serve(async (req) => {
             if (hRes.status === 401 || hRes.status === 429) {
               return json({ error: "Hunter: " + detail }, 502);
             }
-            continue;
-          }
-          const emails = hData?.data?.emails || [];
-          if (emails.length) lookupsCounted++;
-          // Prefer decision-makers: senior/executive first, then by confidence.
-          const rank = (e: any) => (e.seniority === "executive" ? 0 : e.seniority === "senior" ? 1 : 2);
-          emails
-            .filter((e: any) => e.value)
-            .sort((a: any, b: any) => rank(a) - rank(b) || (b.confidence || 0) - (a.confidence || 0))
-            .slice(0, 5)
-            .forEach((e: any) => {
-              people.push({
-                name: [e.first_name, e.last_name].filter(Boolean).join(" ") || "(name unknown)",
-                title: e.position || "",
-                company: co.name || domain,
-                email: e.value,
-                linkedin: e.linkedin || "",
-                confidence: e.confidence ?? null,
+          } else {
+            const emails = hData?.data?.emails || [];
+            if (emails.length) { lookupsCounted++; gotFromHunter = true; }
+            // Prefer decision-makers: senior/executive first, then by confidence.
+            const rank = (e: any) => (e.seniority === "executive" ? 0 : e.seniority === "senior" ? 1 : 2);
+            emails
+              .filter((e: any) => e.value)
+              .sort((a: any, b: any) => rank(a) - rank(b) || (b.confidence || 0) - (a.confidence || 0))
+              .slice(0, 5)
+              .forEach((e: any) => {
+                people.push({
+                  name: [e.first_name, e.last_name].filter(Boolean).join(" ") || "(name unknown)",
+                  title: e.position || "",
+                  company: co.name || domain,
+                  email: e.value,
+                  linkedin: e.linkedin || "",
+                  confidence: e.confidence ?? null,
+                  via: "hunter",
+                });
               });
-            });
-        } catch (_e) { /* skip this company, keep going */ }
+          }
+        } catch (_e) { /* fall through to scraping */ }
+
+        // Fallback: Hunter had nothing (common for African SMBs). Scrape the
+        // company's own site for a published contact address. Costs no quota.
+        if (!gotFromHunter) {
+          const scraped = await scrapeCompanyEmails(domain);
+          scraped.forEach((s) => { people.push({ ...s, company: co.name || domain }); scrapedCount++; });
+        }
       }
 
       return json({
@@ -438,6 +505,7 @@ Deno.serve(async (req) => {
         people,
         companies: companies.map((c: any) => c.name || c.domain),
         lookups_used: lookupsCounted,
+        scraped: scrapedCount, // emails pulled from company websites as a fallback
         source, // "search" (live web) or "knowledge" (Claude's memory)
       });
     }

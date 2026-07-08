@@ -514,7 +514,8 @@
         return;
       }
       const via = data.source === 'search' ? 'live web search' : "Claude's knowledge";
-      let h = `<div class="prospects-total">Via ${via} · searched ${esc(cos)} · ${people.length} contacts · ${data.lookups_used} of your monthly Hunter lookups used</div>`;
+      const scrapedNote = data.scraped ? ` · ${data.scraped} from company sites` : '';
+      let h = `<div class="prospects-total">Via ${via} · searched ${esc(cos)} · ${people.length} contacts${scrapedNote} · ${data.lookups_used} of your monthly Hunter lookups used</div>`;
       people.forEach((p, pi) => {
         const conf = p.confidence != null ? ` · ${p.confidence}% confidence` : '';
         h += `
@@ -523,6 +524,7 @@
               <div class="pinfo">
                 <div class="pname">${esc(p.name || '—')}</div>
                 <div class="prole">${esc(p.title || '')}${p.company ? ' · ' + esc(p.company) : ''}
+                  ${p.via === 'website' ? ' · <span style="color:#e0a24a">from website</span>' : ''}
                   ${p.linkedin ? ` · <a class="li" href="${esc(p.linkedin)}" target="_blank" rel="noopener">LinkedIn</a>` : ''}</div>
                 <span class="email-out" data-email="${esc(p.email)}" title="Click to copy">${esc(p.email)}</span><span class="prole">${esc(conf)}</span>
               </div>
