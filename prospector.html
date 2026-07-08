@@ -156,11 +156,13 @@
   .prospect .prole { color: var(--muted); font-size: 13px; }
   .prospect a.li { color: var(--accent); font-size: 12px; text-decoration: none; }
   .prospect .email-out { font-size: 13px; color: var(--accent); font-family: ui-monospace, monospace; }
-  .reveal-btn {
+  .reveal-btn, .write-btn {
     background: none; border: 1px solid var(--line); color: var(--muted);
     font-size: 12px; padding: 6px 11px; border-radius: 8px; cursor: pointer; white-space: nowrap;
   }
-  .reveal-btn:disabled { opacity: 0.6; cursor: default; }
+  .write-btn { border-color: var(--accent-dim); color: var(--accent); }
+  .reveal-btn:disabled, .write-btn:disabled { opacity: 0.6; cursor: default; }
+  .written { margin: 0 4px 8px; }
   .prospects-total { font-size: 12px; color: var(--muted); margin: 4px 0 2px; }
 
   .err { text-align: center; color: #f87171; margin-top: 24px; font-size: 14px; }
@@ -402,16 +404,21 @@
         return;
       }
       let h = `<div class="prospects-total">Searched ${esc(cos)} · ${people.length} contacts · ${data.lookups_used} of your monthly Hunter lookups used</div>`;
-      people.forEach(p => {
+      people.forEach((p, pi) => {
         const conf = p.confidence != null ? ` · ${p.confidence}% confidence` : '';
         h += `
-          <div class="prospect">
-            <div class="pinfo">
-              <div class="pname">${esc(p.name || '—')}</div>
-              <div class="prole">${esc(p.title || '')}${p.company ? ' · ' + esc(p.company) : ''}
-                ${p.linkedin ? ` · <a class="li" href="${esc(p.linkedin)}" target="_blank" rel="noopener">LinkedIn</a>` : ''}</div>
-              <span class="email-out" data-email="${esc(p.email)}" title="Click to copy">${esc(p.email)}</span><span class="prole">${esc(conf)}</span>
+          <div class="prospect-wrap">
+            <div class="prospect">
+              <div class="pinfo">
+                <div class="pname">${esc(p.name || '—')}</div>
+                <div class="prole">${esc(p.title || '')}${p.company ? ' · ' + esc(p.company) : ''}
+                  ${p.linkedin ? ` · <a class="li" href="${esc(p.linkedin)}" target="_blank" rel="noopener">LinkedIn</a>` : ''}</div>
+                <span class="email-out" data-email="${esc(p.email)}" title="Click to copy">${esc(p.email)}</span><span class="prole">${esc(conf)}</span>
+              </div>
+              <button class="write-btn" data-seg="${index}" data-w="${index}-${pi}"
+                data-name="${esc(p.name || '')}" data-title="${esc(p.title || '')}" data-company="${esc(p.company || '')}">Write email</button>
             </div>
+            <div class="written" id="written-${index}-${pi}"></div>
           </div>`;
       });
       box.innerHTML = h;
@@ -419,11 +426,56 @@
         s.style.cursor = 'pointer';
         s.onclick = () => { navigator.clipboard.writeText(s.dataset.email); const t = s.textContent; s.textContent = t + ' ✓'; setTimeout(() => s.textContent = t, 1200); };
       });
+      box.querySelectorAll('.write-btn').forEach(wb => { wb.onclick = () => writeEmail(wb); });
       btn.textContent = 'Prospects found ✓ — run again for more';
       btn.disabled = false;
     } catch (e) {
       box.innerHTML = `<div class="err" style="text-align:left;margin-top:10px">Network error: ${esc(e.message)}</div>`;
       btn.disabled = false; btn.innerHTML = 'Find real prospects in this segment &nbsp;→';
+    }
+  }
+
+  // Stage 3: write an email personalized to ONE found prospect, using their
+  // name/role/company plus the segment's pains and what our company sells.
+  async function writeEmail(btn) {
+    const seg = (lastResult.segments || [])[Number(btn.dataset.seg)] || {};
+    const company = lastResult.company || {};
+    const out = el('written-' + btn.dataset.w);
+    const prev = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Writing…';
+
+    const context =
+      `We sell: ${company.what_they_sell || company.one_liner || ''}. ` +
+      `This prospect is in our "${seg.name || ''}" buyer segment` +
+      (seg.pain_points && seg.pain_points.length ? `, whose main pains are: ${seg.pain_points.join(', ')}.` : '.');
+
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+        body: JSON.stringify({
+          mode: 'write',
+          prospect: { name: btn.dataset.name, role: btn.dataset.title, company: btn.dataset.company },
+          context,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { btn.disabled = false; btn.textContent = 'Retry'; btn.title = data.error || ''; return; }
+      const em = data.email || {};
+      out.innerHTML = `
+        <div class="email">
+          <div class="label">Personalized for ${esc(btn.dataset.name || 'this prospect')}</div>
+          <div class="subj">${esc(em.subject || '')}</div>
+          <div class="body">${esc(em.body || '')}</div>
+          <button class="copy" data-copy="${esc((em.subject ? em.subject + '\n\n' : '') + (em.body || ''))}">Copy</button>
+        </div>`;
+      out.querySelector('.copy').onclick = (e) => {
+        navigator.clipboard.writeText(e.target.dataset.copy); e.target.textContent = 'Copied ✓';
+      };
+      btn.disabled = false; btn.textContent = 'Rewrite';
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Retry'; btn.title = e.message;
     }
   }
 
