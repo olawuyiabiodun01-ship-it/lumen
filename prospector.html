@@ -103,6 +103,9 @@
     color: var(--text); font-size: 15px; padding: 13px 14px; border-radius: 10px; outline: none; margin: 14px 0;
   }
   .auth .btn { width: 100%; justify-content: center; padding: 14px; }
+  .authswitch { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; }
+  .authswitch a { color: var(--accent); font-size: 13px; text-decoration: none; }
+  .authswitch a:hover { text-decoration: underline; }
 
   /* status / progress */
   .status { text-align: center; color: var(--muted); margin-top: 30px; font-size: 15px; }
@@ -259,9 +262,14 @@
 
   <!-- Signed-out: magic-link login -->
   <div id="authPanel" class="auth" style="display:none">
-    <div style="font-size:15px;color:var(--muted)">Sign in to run your agent</div>
+    <div id="authTitle" style="font-size:15px;color:var(--muted)">Sign in to run your agent</div>
     <input id="emailInput" type="email" placeholder="you@company.com" autocomplete="email" />
-    <button class="btn" id="loginBtn">Send me a login link</button>
+    <input id="passwordInput" type="password" placeholder="Password" autocomplete="current-password" />
+    <button class="btn" id="loginBtn">Sign in</button>
+    <div class="authswitch">
+      <a id="toSignup" href="#">First time here? Create your account</a>
+      <a id="forgotLink" href="#">Forgot password?</a>
+    </div>
     <div class="hint" id="authHint"></div>
   </div>
 
@@ -360,7 +368,9 @@
       el('tabs').style.display = 'none';
       el('appPanel').style.display = 'none';
       el('outboxPanel').style.display = 'none';
+      el('teamPanel').style.display = 'none';
       el('who').innerHTML = '';
+      if (authMode !== 'recovery') setAuthMode('signin');
     }
   }
 
@@ -388,19 +398,78 @@
     return data;
   }
 
-  el('loginBtn').onclick = async () => {
-    const email = el('emailInput').value.trim();
-    if (!email.includes('@')) { el('authHint').textContent = 'Enter a valid email.'; return; }
-    el('loginBtn').disabled = true;
-    el('authHint').textContent = 'Sending…';
-    const { error } = await sb.auth.signInWithOtp({
-      email, options: { emailRedirectTo: location.href.split('#')[0] }
-    });
-    el('loginBtn').disabled = false;
-    el('authHint').textContent = error
-      ? 'Error: ' + error.message
-      : 'Check your inbox for a login link, then come back here.';
+  // ---- password auth: signin / signup / recovery ----
+  let authMode = 'signin'; // 'signin' | 'signup' | 'recovery'
+
+  function setAuthMode(m) {
+    authMode = m;
+    const title = el('authTitle'), btn = el('loginBtn'), toSignup = el('toSignup');
+    el('authHint').textContent = '';
+    el('emailInput').style.display = m === 'recovery' ? 'none' : 'block';
+    el('forgotLink').style.display = m === 'signin' ? 'inline' : 'none';
+    el('passwordInput').autocomplete = m === 'signin' ? 'current-password' : 'new-password';
+    if (m === 'signup') {
+      title.textContent = 'Create your account'; btn.textContent = 'Create account';
+      toSignup.textContent = 'Have an account? Sign in'; el('passwordInput').placeholder = 'Choose a password (6+ characters)';
+    } else if (m === 'recovery') {
+      title.textContent = 'Set a new password'; btn.textContent = 'Update password';
+      toSignup.style.display = 'none'; el('passwordInput').placeholder = 'New password (6+ characters)';
+      el('passwordInput').value = '';
+    } else {
+      title.textContent = 'Sign in to run your agent'; btn.textContent = 'Sign in';
+      toSignup.textContent = 'First time here? Create your account'; el('passwordInput').placeholder = 'Password';
+    }
+  }
+
+  el('toSignup').onclick = (e) => { e.preventDefault(); setAuthMode(authMode === 'signup' ? 'signin' : 'signup'); };
+
+  el('forgotLink').onclick = async (e) => {
+    e.preventDefault();
+    const email = el('emailInput').value.trim().toLowerCase();
+    if (!email.includes('@')) { el('authHint').textContent = 'Type your email above first, then click Forgot password.'; return; }
+    el('authHint').textContent = 'Sending reset email…';
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
+    el('authHint').textContent = error ? ('Error: ' + error.message) : 'Reset email sent — open it to set a new password.';
   };
+
+  el('loginBtn').onclick = async () => {
+    const email = el('emailInput').value.trim().toLowerCase();
+    const password = el('passwordInput').value;
+    if (password.length < 6) { el('authHint').textContent = 'Password must be at least 6 characters.'; return; }
+
+    el('loginBtn').disabled = true;
+    try {
+      if (authMode === 'recovery') {
+        el('authHint').textContent = 'Updating…';
+        const { error } = await sb.auth.updateUser({ password });
+        if (error) throw error;
+        el('authHint').textContent = 'Password updated. You are signed in.';
+        // onAuthStateChange will load the app.
+      } else if (authMode === 'signup') {
+        if (!email.includes('@')) { el('authHint').textContent = 'Enter a valid email.'; el('loginBtn').disabled = false; return; }
+        el('authHint').textContent = 'Creating account…';
+        const { data, error } = await sb.auth.signUp({ email, password });
+        if (error) throw error;
+        if (!data.session) {
+          // Email confirmation is still switched on in Supabase.
+          el('authHint').textContent = 'Account created — check your inbox once to confirm, then sign in.';
+          setAuthMode('signin');
+        }
+      } else {
+        if (!email.includes('@')) { el('authHint').textContent = 'Enter a valid email.'; el('loginBtn').disabled = false; return; }
+        el('authHint').textContent = 'Signing in…';
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      }
+    } catch (e) {
+      el('authHint').textContent = e.message || 'Something went wrong.';
+    } finally {
+      el('loginBtn').disabled = false;
+    }
+  };
+
+  // Pressing Enter in the password field submits.
+  el('passwordInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('loginBtn').click(); });
 
   // ---- the pipeline ----
   let stepTimer = null;
@@ -866,7 +935,21 @@
     }
   };
 
-  sb.auth.onAuthStateChange(() => refreshAuth());
+  sb.auth.onAuthStateChange((event) => {
+    // Arriving from a "reset password" email: show the set-new-password form
+    // instead of the app, even though a temporary recovery session exists.
+    if (event === 'PASSWORD_RECOVERY') {
+      el('authPanel').style.display = 'block';
+      el('tabs').style.display = 'none';
+      el('appPanel').style.display = 'none';
+      el('outboxPanel').style.display = 'none';
+      el('teamPanel').style.display = 'none';
+      el('who').innerHTML = '';
+      setAuthMode('recovery');
+      return;
+    }
+    refreshAuth();
+  });
   refreshAuth();
 </script>
 </body>
