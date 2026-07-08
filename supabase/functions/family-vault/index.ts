@@ -7,7 +7,8 @@
 //
 // Documents are organised like a library: each member has a set of fixed
 // shelves (certificates, id-cards, ...). One shelf, "confidential", needs a
-// SECOND secret (FAMILY_VAULT_PRIVATE_CODE) before it will open at all.
+// SECOND secret — a per-member 4-digit code (FAMILY_VAULT_CODE_<MEMBER>) —
+// before it will open at all.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -28,7 +29,7 @@ const SHELVES = [
   "confidential",
 ];
 
-// This shelf is gated by the extra secret code.
+// This shelf is gated by the per-member secret code.
 const LOCKED_SHELF = "confidential";
 
 const CORS = {
@@ -60,6 +61,8 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 // Keep only safe filename characters; preserve the extension.
 function sanitizeName(name: string): string {
   const cleaned = name.replace(/[^a-zA-Z0-9 ._()-]/g, "_").trim();
@@ -73,22 +76,42 @@ function validPath(path: string): boolean {
     SHELVES.includes(parts[1]) && parts[2].length > 0 && !path.includes("..");
 }
 
-// Returns an error Response if the shelf is locked and the code is wrong,
-// otherwise null (access allowed).
-function guardLocked(shelf: string, code: string | undefined): Response | null {
+// Each member has their own confidential code, held as its own secret.
+function memberCode(member: string): string | undefined {
+  return Deno.env.get(`FAMILY_VAULT_CODE_${member.toUpperCase()}`);
+}
+
+// Returns an error Response if the shelf is locked and the code is wrong for
+// this member, otherwise null (access allowed). Slows down wrong guesses.
+async function guardLocked(
+  member: string,
+  shelf: string,
+  code: string | undefined,
+): Promise<Response | null> {
   if (shelf !== LOCKED_SHELF) return null;
-  const secret = Deno.env.get("FAMILY_VAULT_PRIVATE_CODE");
-  if (!secret) return json({ error: "Secret code not configured" }, 500);
-  if (code !== secret) return json({ error: "code", locked: true }, 403);
+  const secret = memberCode(member);
+  if (!secret) return json({ error: "Secret code not configured", locked: true }, 500);
+  if (code !== secret) {
+    await sleep(1000); // brake on 4-digit guessing (also behind the main password)
+    return json({ error: "code", locked: true }, 403);
+  }
   return null;
 }
 
-async function countShelf(member: string, shelf: string): Promise<number> {
+// List a single shelf, already filtered to real files (folders have no id).
+async function listShelf(member: string, shelf: string) {
   const { data } = await supabase.storage.from(BUCKET).list(
     `${member}/${shelf}`,
-    { limit: 1000 },
+    { limit: 1000, sortBy: { column: "created_at", order: "desc" } },
   );
-  return (data ?? []).filter((f) => f.id).length;
+  return (data ?? []).filter((f) => f.id).map((f) => ({
+    path: `${member}/${shelf}/${f.name}`,
+    name: f.name.replace(/^\d{13}-/, ""), // hide the timestamp prefix
+    shelf,
+    size: f.metadata?.size ?? 0,
+    type: f.metadata?.mimetype ?? "",
+    created: f.created_at,
+  }));
 }
 
 Deno.serve(async (req) => {
@@ -105,7 +128,7 @@ Deno.serve(async (req) => {
   const expected = Deno.env.get("FAMILY_VAULT_PASSWORD");
   if (!expected) return json({ error: "Vault password not configured" }, 500);
   if (body.password !== expected) {
-    await new Promise((r) => setTimeout(r, 1200)); // slow down guessing
+    await sleep(1200); // slow down password guessing
     return json({ error: "Wrong password" }, 401);
   }
 
@@ -129,22 +152,36 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Verify the confidential secret code without opening anything.
+      // Verify a member's confidential code without opening anything.
       case "check-code": {
-        const blocked = guardLocked(LOCKED_SHELF, body.code);
-        return blocked ?? json({ ok: true });
-      }
-
-      // How many documents sit on each shelf, for the library overview.
-      case "overview": {
         if (!MEMBERS.includes(body.member)) {
           return json({ error: "Unknown member" }, 400);
         }
+        const blocked = await guardLocked(body.member, LOCKED_SHELF, body.code);
+        return blocked ?? json({ ok: true });
+      }
+
+      // Everything in one member's library: per-shelf counts (for the grid)
+      // plus every document (for search). Confidential files are only
+      // included when the member's code is supplied and correct — but its
+      // count is always returned (a count reveals nothing).
+      case "library": {
+        if (!MEMBERS.includes(body.member)) {
+          return json({ error: "Unknown member" }, 400);
+        }
+        const unlocked = !!memberCode(body.member) &&
+          body.code === memberCode(body.member);
         const counts: Record<string, number> = {};
-        await Promise.all(
-          SHELVES.map(async (s) => (counts[s] = await countShelf(body.member, s))),
-        );
-        return json({ counts });
+        const files: unknown[] = [];
+        await Promise.all(SHELVES.map(async (shelf) => {
+          const items = await listShelf(body.member, shelf);
+          counts[shelf] = items.length;
+          if (shelf === LOCKED_SHELF && !unlocked) return; // hide the docs
+          files.push(...items);
+        }));
+        files.sort((a: any, b: any) =>
+          (b.created ?? "").localeCompare(a.created ?? ""));
+        return json({ counts, files, confidentialLocked: !unlocked });
       }
 
       case "list": {
@@ -154,25 +191,9 @@ Deno.serve(async (req) => {
         if (!SHELVES.includes(body.shelf)) {
           return json({ error: "Unknown shelf" }, 400);
         }
-        const blocked = guardLocked(body.shelf, body.code);
+        const blocked = await guardLocked(body.member, body.shelf, body.code);
         if (blocked) return blocked;
-
-        const prefix = `${body.member}/${body.shelf}`;
-        const { data, error } = await supabase.storage.from(BUCKET).list(
-          prefix,
-          { limit: 1000, sortBy: { column: "created_at", order: "desc" } },
-        );
-        if (error) throw error;
-        const files = (data ?? [])
-          .filter((f) => f.id) // folders have no id
-          .map((f) => ({
-            path: `${prefix}/${f.name}`,
-            name: f.name.replace(/^\d{13}-/, ""), // hide the timestamp prefix
-            size: f.metadata?.size ?? 0,
-            type: f.metadata?.mimetype ?? "",
-            created: f.created_at,
-          }));
-        return json({ files });
+        return json({ files: await listShelf(body.member, body.shelf) });
       }
 
       case "upload-url": {
@@ -190,7 +211,7 @@ Deno.serve(async (req) => {
         if (!SHELVES.includes(body.shelf)) {
           return json({ error: "Unknown shelf" }, 400);
         }
-        const blocked = guardLocked(body.shelf, body.code);
+        const blocked = await guardLocked(body.member, body.shelf, body.code);
         if (blocked) return blocked;
 
         const path = `${body.member}/${body.shelf}/${Date.now()}-${
@@ -204,7 +225,8 @@ Deno.serve(async (req) => {
 
       case "file-url": {
         if (!validPath(body.path ?? "")) return json({ error: "Bad path" }, 400);
-        const blocked = guardLocked(body.path.split("/")[1], body.code);
+        const [member, shelf] = body.path.split("/");
+        const blocked = await guardLocked(member, shelf, body.code);
         if (blocked) return blocked;
         const { data, error } = await supabase.storage.from(BUCKET)
           .createSignedUrl(body.path, 3600);
@@ -214,7 +236,8 @@ Deno.serve(async (req) => {
 
       case "delete": {
         if (!validPath(body.path ?? "")) return json({ error: "Bad path" }, 400);
-        const blocked = guardLocked(body.path.split("/")[1], body.code);
+        const [member, shelf] = body.path.split("/");
+        const blocked = await guardLocked(member, shelf, body.code);
         if (blocked) return blocked;
         const { error } = await supabase.storage.from(BUCKET)
           .remove([body.path]);

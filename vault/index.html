@@ -109,11 +109,17 @@
     background:var(--panel-2); border:1px solid var(--line);
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
-  #search{
+  #search, #lib-search{
     width:100%; padding:12px 16px; border-radius:14px; border:1px solid var(--line);
     background:var(--panel); color:var(--text); font-size:15px; outline:none; margin-bottom:14px;
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
+  #search:focus, #lib-search:focus{border-color:var(--gold)}
+  .result-shelf{
+    display:inline-block; font-size:11px; color:var(--muted);
+    border:1px solid var(--line); border-radius:20px; padding:1px 8px; margin-top:4px;
+  }
+  .search-note{color:var(--muted); font-size:12.5px; text-align:center; padding:14px 8px 4px}
   .file{
     display:flex; align-items:center; gap:12px; background:var(--panel);
     border:1px solid var(--line); border-radius:16px; padding:12px 14px; margin-bottom:10px;
@@ -201,6 +207,8 @@
       <div id="s-sub" style="color:var(--muted); font-size:13px">Pick a shelf</div>
     </div>
   </div>
+  <input id="lib-search" type="search" placeholder="🔎 Search all shelves…">
+  <div id="lib-results" class="hidden"></div>
   <div class="shelf-grid" id="shelf-grid"></div>
 </div>
 
@@ -229,9 +237,10 @@
   <div class="sheet">
     <div class="lockicon">🔒</div>
     <h3>Confidential shelf</h3>
-    <p>Enter the secret code to open your most sensitive documents.</p>
+    <p id="code-who">Enter the 4-digit code to open the confidential documents.</p>
     <form id="code-form">
-      <input id="code-input" type="password" inputmode="text" placeholder="Secret code" autocomplete="off">
+      <input id="code-input" type="password" inputmode="numeric" maxlength="4"
+             pattern="[0-9]*" placeholder="• • • •" autocomplete="one-time-code">
       <p id="code-err"></p>
       <div class="row">
         <button type="button" class="cancel" id="code-cancel">Cancel</button>
@@ -265,11 +274,14 @@ const SHELVES = [
   { id:'confidential', name:'Confidential',       emoji:'🔒', hint:'Locked with a secret code', color:'#e06b6b', locked:true },
 ];
 
+const SHELF_BY_ID = Object.fromEntries(SHELVES.map(s => [s.id, s]));
+
 let password   = localStorage.getItem('vault-password') || '';
-let privateCode = '';        // secret code for the confidential shelf (memory only)
+let codes      = {};         // per-member confidential codes, e.g. {abiodun:'4917'} (memory only)
 let current    = null;       // member object currently open
 let currentShelf = null;     // shelf object currently open
 let currentFiles = [];       // last fetched list for the open shelf
+let libraryCache = null;     // {member, files, confidentialLocked} for search-all
 
 const $ = (id) => document.getElementById(id);
 
@@ -285,7 +297,11 @@ async function api(action, extra = {}){
   const res = await fetch(FN_URL, {
     method:'POST',
     headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify({ action, password, ...(privateCode ? { code: privateCode } : {}), ...extra }),
+    body: JSON.stringify({
+      action, password,
+      ...(current && codes[current.id] ? { code: codes[current.id] } : {}),
+      ...extra,
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok){
@@ -324,14 +340,21 @@ async function openMember(m){
   $('s-avatar').style.background = m.color;
   $('s-avatar').textContent = m.emoji;
   $('s-name').textContent = m.family ? 'Family — shared' : `${m.name}’s library`;
-  const grid = $('shelf-grid');
-  grid.innerHTML = '';
+  $('lib-search').value = '';
+  $('lib-results').classList.add('hidden');
+  $('shelf-grid').classList.remove('hidden');
+  $('shelf-grid').innerHTML = '';
   show('shelves');
 
+  // One call powers both the shelf grid (counts) and search-all (files).
   let counts = {};
-  try{ counts = (await api('overview', { member: m.id })).counts || {}; }
-  catch(e){ toast(e.message); }
+  try{
+    const lib = await api('library', { member: m.id });
+    counts = lib.counts || {};
+    libraryCache = { member: m.id, files: lib.files || [], confidentialLocked: lib.confidentialLocked };
+  }catch(e){ toast(e.message); libraryCache = null; }
 
+  const grid = $('shelf-grid');
   for (const shelf of SHELVES){
     const n = counts[shelf.id] ?? 0;
     const b = document.createElement('button');
@@ -348,13 +371,49 @@ async function openMember(m){
   }
 }
 
+/* ---------- search across every shelf in this library ---------- */
+function renderSearch(){
+  const q = $('lib-search').value.trim().toLowerCase();
+  const grid = $('shelf-grid'), results = $('lib-results');
+  if (!q){ results.classList.add('hidden'); grid.classList.remove('hidden'); return; }
+  grid.classList.add('hidden'); results.classList.remove('hidden');
+
+  const all = libraryCache?.files || [];
+  const hits = all.filter(f => f.name.toLowerCase().includes(q));
+  results.innerHTML = '';
+  if (!hits.length){
+    results.innerHTML = `<div class="empty">No documents match “${q.replace(/</g,'&lt;')}”.</div>`;
+  } else {
+    for (const f of hits){
+      const shelf = SHELF_BY_ID[f.shelf] || {};
+      const row = document.createElement('div');
+      row.className = 'file';
+      row.innerHTML = `<div class="ficon">${iconFor(f)}</div>
+        <div class="fmeta">
+          <div class="fname">${f.name.replace(/</g,'&lt;')}</div>
+          <div class="fsub">${fmtDate(f.created)}${f.size ? ' · ' + fmtSize(f.size) : ''}</div>
+          <span class="result-shelf">${shelf.emoji || ''} ${shelf.name || f.shelf}</span>
+        </div>`;
+      row.querySelector('.fmeta').onclick = () => openFile(f);
+      results.appendChild(row);
+    }
+  }
+  if (libraryCache?.confidentialLocked){
+    const note = document.createElement('div');
+    note.className = 'search-note';
+    note.textContent = '🔒 The Confidential shelf isn’t searched — open it once to include it.';
+    results.appendChild(note);
+  }
+}
+
 /* ---------- one shelf's documents ---------- */
 async function openShelf(shelf){
-  // The confidential shelf needs the secret code first.
-  if (shelf.locked && !privateCode){
+  // The confidential shelf needs this member's secret code first.
+  if (shelf.locked && !codes[current.id]){
     const code = await askCode();
     if (code === null) return;   // cancelled
-    privateCode = code;
+    codes[current.id] = code;
+    libraryCache = null;         // re-load later so search can include confidential
   }
   currentShelf = shelf;
   $('f-emoji').textContent = shelf.emoji;
@@ -374,7 +433,7 @@ async function refresh(){
     renderFiles();
   }catch(e){
     if (e.locked){        // code was wrong or changed — forget it and go back
-      privateCode = '';
+      delete codes[current.id];
       toast('That code no longer works.');
       openMember(current);
       return;
@@ -450,6 +509,7 @@ async function removeFile(f){
   if (!confirm(`Delete “${f.name}”?\nThis cannot be undone.`)) return;
   try{
     await api('delete', { path: f.path });
+    libraryCache = null;   // search cache is now stale
     toast('Deleted');
     await refresh();
   }catch(e){ toast(e.message); }
@@ -476,14 +536,17 @@ async function uploadFiles(fileList){
       return;
     }
   }
+  libraryCache = null;   // search cache is now stale
   toast(files.length > 1 ? `${files.length} documents saved ✓` : 'Saved ✓');
   await refresh();
 }
 
-/* ---------- secret-code prompt (promise-based) ---------- */
+/* ---------- secret-code prompt (per member, promise-based) ---------- */
 function askCode(){
   return new Promise((resolve) => {
     const modal = $('code-modal'), input = $('code-input'), err = $('code-err');
+    const who = current.family ? 'the family' : `${current.name}’s`;
+    $('code-who').textContent = `Enter ${who} 4-digit code to open the confidential documents.`;
     err.textContent = ''; input.value = '';
     modal.classList.remove('hidden');
     setTimeout(() => input.focus(), 50);
@@ -501,7 +564,7 @@ function askCode(){
       if (!val) return;
       err.textContent = 'Checking…';
       try{
-        await api('check-code', { code: val });
+        await api('check-code', { member: current.id, code: val });
         close(val);
       }catch(e){
         err.textContent = e.locked ? 'Wrong code — try again.' : e.message;
@@ -546,7 +609,7 @@ $('login-form').onsubmit = async (ev) => {
 
 $('logout').onclick = () => {
   localStorage.removeItem('vault-password');
-  password = ''; privateCode = '';
+  password = ''; codes = {}; libraryCache = null;
   $('pw').value = '';
   document.body.classList.remove('has-photo');
   document.body.style.removeProperty('--photo-url');
@@ -558,6 +621,7 @@ $('logout').onclick = () => {
 
 $('shelves-back').onclick = renderHome;
 $('shelf-back').onclick   = () => openMember(current);
+$('lib-search').oninput = renderSearch;
 $('search').oninput = renderFiles;
 $('snap').onclick = () => $('file-cam').click();
 $('add').onclick  = () => $('file-any').click();
