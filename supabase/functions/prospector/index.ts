@@ -1,5 +1,9 @@
 // Deploy path: supabase/functions/prospector/index.ts
-// Deploy with:  supabase functions deploy prospector
+// Deploy with:  supabase functions deploy prospector --no-verify-jwt
+//   (--no-verify-jwt lets the PUBLIC unsubscribe link — an unauthenticated GET
+//    — reach this function. It does NOT weaken security: every POST mode below
+//    still does its own full auth (valid session + approved_users) and rejects
+//    anything without a real, approved session.)
 // Uses the same ANTHROPIC_API_KEY secret you already set for lumen-chat.
 //
 // This is the "AI SDR" engine. Same auth model as lumen-chat: the browser
@@ -11,10 +15,13 @@
 //              (Claude only — no paid data provider needed.)
 //   write    → given a specific prospect (name/role/company), write a single
 //              personalized outreach email. (Claude only.)
-//
-// Stages that need external paid services (finding real prospects with real
-// emails, and auto-sending on a schedule) are intentionally NOT here yet —
-// they plug in as new modes once you add an Apollo/Hunter key and pg_cron.
+//   find     → Stage 2: real prospects + verified emails via Hunter.io.
+//   queue / outbox / approve / pause / resume / mark_replied
+//            → Stage 4: build & manage an outreach queue. Nothing here sends
+//              email — approve only marks rows 'approved'; the separate
+//              outreach-cron function does the actual sending.
+//   settings_get / settings_save → per-user sending identity + compliance.
+//   (plus a public GET ?u=<token> unsubscribe handler, before the auth gate.)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -120,6 +127,32 @@ async function claudeJson(system: string, user: string, maxTokens: number) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // ---- PUBLIC UNSUBSCRIBE (no auth) ----
+  // Recipients click the ?u=<token> link in an email footer. The token is just
+  // their base64url-encoded email. We add them to the suppression list and stop
+  // any of their pending sequences, then show a plain confirmation page.
+  const reqUrl = new URL(req.url);
+  const unsubToken = reqUrl.searchParams.get("u");
+  if (req.method === "GET" && unsubToken) {
+    let target = "";
+    try {
+      target = atob(unsubToken.replace(/-/g, "+").replace(/_/g, "/")).trim().toLowerCase();
+    } catch { /* bad token */ }
+    const page = (msg: string) =>
+      new Response(
+        `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+        `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:460px;margin:80px auto;padding:0 20px;text-align:center;color:#1a1a1a">` +
+        `<h2>${msg}</h2></div>`,
+        { headers: { "Content-Type": "text/html; charset=utf-8" } },
+      );
+    if (!target || !target.includes("@")) return page("Invalid unsubscribe link.");
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    await admin.from("unsubscribes").upsert({ email: target }, { onConflict: "email" });
+    await admin.from("outreach").update({ status: "unsubscribed" })
+      .eq("prospect_email", target).in("status", ["draft", "approved", "paused"]);
+    return page("You've been unsubscribed. You won't receive further emails.");
+  }
 
   try {
     // ---- AUTH: same gate as lumen-chat ----
@@ -313,6 +346,142 @@ Deno.serve(async (req) => {
         companies: companies.map((c: any) => c.name || c.domain),
         lookups_used: lookupsCounted,
       });
+    }
+
+    // ================= STAGE 4: OUTREACH / AUTO-SEND =================
+
+    // ---- SENDER SETTINGS ----
+    if (mode === "settings_get") {
+      const { data } = await supabase.from("sender_settings").select("*").eq("user_email", email).maybeSingle();
+      return json({ ok: true, settings: data || null });
+    }
+    if (mode === "settings_save") {
+      const s = body.settings || {};
+      const row = {
+        user_email: email,
+        from_name: (s.from_name || "").trim() || null,
+        from_email: (s.from_email || "").trim().toLowerCase() || null,
+        reply_to: (s.reply_to || "").trim().toLowerCase() || null,
+        signature: (s.signature || "").trim() || null,
+        physical_address: (s.physical_address || "").trim() || null,
+        daily_cap: Math.min(Math.max(Number(s.daily_cap) || 50, 1), 500),
+        updated_at: new Date().toISOString(),
+      };
+      const { error: upErr } = await supabase.from("sender_settings").upsert(row, { onConflict: "user_email" });
+      if (upErr) return json({ error: upErr.message }, 500);
+      return json({ ok: true });
+    }
+
+    // ---- QUEUE: add prospects as DRAFTS (never sends anything) ----
+    if (mode === "queue") {
+      const items = Array.isArray(body.prospects) ? body.prospects : [];
+      if (!items.length) return json({ error: "no prospects to queue" }, 400);
+      const rows = items
+        .filter((p: any) => p && p.email && p.subject && p.body)
+        .slice(0, 100)
+        .map((p: any) => ({
+          user_email: email,
+          sequence_id: crypto.randomUUID(),
+          step: 0,
+          prospect_name: p.name || null,
+          prospect_email: String(p.email).trim().toLowerCase(),
+          prospect_company: p.company || null,
+          prospect_title: p.title || null,
+          segment_name: p.segment || null,
+          subject: p.subject,
+          body: p.body,
+          status: "draft",
+        }));
+      if (!rows.length) return json({ error: "prospects were missing email/subject/body" }, 400);
+      const { error: insErr } = await supabase.from("outreach").insert(rows);
+      if (insErr) return json({ error: insErr.message }, 500);
+      return json({ ok: true, queued: rows.length });
+    }
+
+    // ---- OUTBOX: list this user's outreach rows ----
+    if (mode === "outbox") {
+      const { data, error: obErr } = await supabase
+        .from("outreach").select("*").eq("user_email", email)
+        .order("created_at", { ascending: false }).limit(300);
+      if (obErr) return json({ error: obErr.message }, 500);
+      return json({ ok: true, rows: data || [] });
+    }
+
+    // ---- APPROVE: schedule drafts to send, optionally with follow-ups ----
+    // This is the ONLY thing that lets an email leave the building. Even then
+    // it only sets status='approved' + a send time; the cron does the sending.
+    if (mode === "approve") {
+      const ids: string[] = Array.isArray(body.ids) ? body.ids : [];
+      if (!ids.length) return json({ error: "no ids to approve" }, 400);
+      const sendAt = body.send_at ? new Date(body.send_at) : new Date();
+      const followups = body.followups !== false; // default on
+      const days: number[] = Array.isArray(body.followup_days) ? body.followup_days : [3, 7];
+
+      // Load the drafts we're approving (must belong to this user + be step 0 drafts).
+      const { data: drafts } = await supabase
+        .from("outreach").select("*").eq("user_email", email).eq("status", "draft").in("id", ids);
+      if (!drafts || !drafts.length) return json({ error: "nothing approvable in that selection" }, 400);
+
+      // Approve the initial emails.
+      await supabase.from("outreach")
+        .update({ status: "approved", send_after: sendAt.toISOString() })
+        .in("id", drafts.map((d: any) => d.id));
+
+      // Generate templated follow-ups in the same sequence, pre-approved but
+      // clearly spaced out. A reply/unsubscribe cancels them (see mark_replied).
+      let followupCount = 0;
+      if (followups) {
+        const extra: any[] = [];
+        for (const d of drafts) {
+          const first = (d.prospect_name || "there").split(" ")[0];
+          days.slice(0, 2).forEach((offset, i) => {
+            const when = new Date(sendAt.getTime() + offset * 24 * 60 * 60 * 1000);
+            const body2 = i === 0
+              ? `Hi ${first},\n\nFloating this back to the top of your inbox in case it slipped by — I know these things get buried.\n\nWorth a quick look?`
+              : `Hi ${first},\n\nLast note from me on this — if it's not the right time, no problem at all. If it is, I'm happy to share a bit more whenever suits.`;
+            extra.push({
+              user_email: email,
+              sequence_id: d.sequence_id,
+              step: i + 1,
+              prospect_name: d.prospect_name,
+              prospect_email: d.prospect_email,
+              prospect_company: d.prospect_company,
+              prospect_title: d.prospect_title,
+              segment_name: d.segment_name,
+              subject: d.subject.startsWith("Re:") ? d.subject : `Re: ${d.subject}`,
+              body: body2,
+              status: "approved",
+              send_after: when.toISOString(),
+            });
+          });
+        }
+        if (extra.length) {
+          const { error: fErr } = await supabase.from("outreach").insert(extra);
+          if (!fErr) followupCount = extra.length;
+        }
+      }
+      return json({ ok: true, approved: drafts.length, followups: followupCount });
+    }
+
+    // ---- PAUSE / RESUME / MARK REPLIED — act on a whole sequence ----
+    if (mode === "pause") {
+      if (!body.sequence_id) return json({ error: "missing sequence_id" }, 400);
+      await supabase.from("outreach").update({ status: "paused" })
+        .eq("user_email", email).eq("sequence_id", body.sequence_id).in("status", ["approved", "draft"]);
+      return json({ ok: true });
+    }
+    if (mode === "resume") {
+      if (!body.sequence_id) return json({ error: "missing sequence_id" }, 400);
+      await supabase.from("outreach").update({ status: "approved" })
+        .eq("user_email", email).eq("sequence_id", body.sequence_id).eq("status", "paused");
+      return json({ ok: true });
+    }
+    if (mode === "mark_replied") {
+      if (!body.sequence_id) return json({ error: "missing sequence_id" }, 400);
+      // Stop everything still pending in the sequence; leave already-sent rows.
+      await supabase.from("outreach").update({ status: "replied" })
+        .eq("user_email", email).eq("sequence_id", body.sequence_id).in("status", ["draft", "approved", "paused"]);
+      return json({ ok: true });
     }
 
     return json({ error: "unknown mode" }, 400);

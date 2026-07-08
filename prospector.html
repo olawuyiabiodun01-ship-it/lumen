@@ -171,6 +171,50 @@
     text-align: center; color: var(--muted); font-size: 14px; line-height: 1.6;
   }
   .locked-note b { color: var(--text); }
+  /* stage 4 — outbox */
+  .tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 24px; }
+  .tab {
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+    padding: 9px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600;
+  }
+  .tab.active { color: var(--accent); border-color: var(--accent-dim); }
+  #outboxCount { color: var(--accent); }
+
+  .settings { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 4px 18px; margin-bottom: 20px; }
+  .settings summary { cursor: pointer; padding: 14px 0; font-weight: 600; font-size: 15px; }
+  #settingsWarn { color: #f5b74a; font-size: 13px; font-weight: 400; }
+  .sform { display: flex; flex-direction: column; gap: 12px; padding: 8px 0 18px; }
+  .sform label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); }
+  .sform .req { color: #5d6976; font-size: 11px; }
+  .sform input, .sform textarea {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 9px; padding: 10px 12px; font-size: 14px; outline: none; font-family: inherit;
+  }
+  .sform .btn { align-self: flex-start; padding: 11px 18px; }
+
+  .campaign { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
+  .campaign .chead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .campaign .cname { font-weight: 600; font-size: 15px; }
+  .campaign .csub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .badge { font-size: 11px; padding: 3px 9px; border-radius: 20px; text-transform: uppercase; letter-spacing: .05em; }
+  .badge.draft { background: #2a2f18; color: #d8c24a; }
+  .badge.approved { background: #12324a; color: #5fb0e6; }
+  .badge.sent { background: var(--accent-dim); color: var(--accent); }
+  .badge.paused { background: #33270f; color: #e0a24a; }
+  .badge.replied { background: #1f3a2c; color: #6ee6a8; }
+  .badge.failed, .badge.unsubscribed { background: #3a1c1c; color: #f08a8a; }
+  .campaign .steps-row { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .campaign .cactions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .campaign .cactions button {
+    background: none; border: 1px solid var(--line); color: var(--text);
+    font-size: 13px; padding: 7px 13px; border-radius: 8px; cursor: pointer;
+  }
+  .campaign .cactions .primary { background: var(--accent); color: #04120c; border-color: var(--accent); font-weight: 600; }
+  .campaign .cactions button:disabled { opacity: .5; cursor: default; }
+  .ob-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
+  .ob-toolbar .btn { padding: 10px 16px; }
+  .ob-empty { text-align: center; color: var(--muted); padding: 40px 0; }
+
   @media (max-width: 560px) {
     h1 { font-size: 30px; }
     .meta { grid-template-columns: 1fr; }
@@ -198,6 +242,12 @@
     <div class="hint" id="authHint"></div>
   </div>
 
+  <!-- Signed-in: view tabs -->
+  <div id="tabs" class="tabs" style="display:none">
+    <button class="tab active" data-view="find">Find prospects</button>
+    <button class="tab" data-view="outbox">Outbox <span id="outboxCount"></span></button>
+  </div>
+
   <!-- Signed-in: the domain search -->
   <div id="appPanel" style="display:none">
     <div class="searchbox">
@@ -218,6 +268,25 @@
     <div id="results"></div>
     <div id="error" class="err"></div>
   </div>
+
+  <!-- Signed-in: the outbox / campaigns view -->
+  <div id="outboxPanel" style="display:none">
+    <details class="settings" id="senderSettings">
+      <summary>Sending identity &amp; compliance <span id="settingsWarn"></span></summary>
+      <div class="sform">
+        <label>From name<input id="s_from_name" placeholder="Jane at Acme"></label>
+        <label>From email <span class="req">(must be on a Resend-verified domain)</span><input id="s_from_email" placeholder="jane@acme.com"></label>
+        <label>Reply-to<input id="s_reply_to" placeholder="jane@acme.com"></label>
+        <label>Signature<textarea id="s_signature" rows="2" placeholder="Jane Doe — Founder, Acme"></textarea></label>
+        <label>Physical address <span class="req">(required by anti-spam law, shown in footer)</span><textarea id="s_physical_address" rows="2" placeholder="Acme Inc, 123 Main St, City, Country"></textarea></label>
+        <label>Daily send cap<input id="s_daily_cap" type="number" min="1" max="500" value="50"></label>
+        <button class="btn" id="saveSettingsBtn">Save sending settings</button>
+        <span class="hint" id="settingsHint"></span>
+      </div>
+    </details>
+
+    <div id="outboxList"></div>
+  </div>
 </div>
 
 <script>
@@ -234,14 +303,40 @@
     const { data: { session } } = await sb.auth.getSession();
     if (session) {
       el('authPanel').style.display = 'none';
-      el('appPanel').style.display = 'block';
+      el('tabs').style.display = 'flex';
+      showView('find');
       el('who').innerHTML = esc(session.user.email) + ' &nbsp;<button id="logoutBtn">Sign out</button>';
       el('logoutBtn').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+      refreshOutboxCount();
     } else {
       el('authPanel').style.display = 'block';
+      el('tabs').style.display = 'none';
       el('appPanel').style.display = 'none';
+      el('outboxPanel').style.display = 'none';
       el('who').innerHTML = '';
     }
+  }
+
+  // ---- view switching ----
+  function showView(view) {
+    el('appPanel').style.display = view === 'find' ? 'block' : 'none';
+    el('outboxPanel').style.display = view === 'outbox' ? 'block' : 'none';
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+    if (view === 'outbox') { loadSettings(); renderOutbox(); }
+  }
+  document.querySelectorAll('.tab').forEach(t => { t.onclick = () => showView(t.dataset.view); });
+
+  // ---- authenticated call helper ----
+  async function api(payload) {
+    const { data: { session } } = await sb.auth.getSession();
+    const res = await fetch(EDGE_FUNCTION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+    return data;
   }
 
   el('loginBtn').onclick = async () => {
@@ -416,7 +511,8 @@
                 <span class="email-out" data-email="${esc(p.email)}" title="Click to copy">${esc(p.email)}</span><span class="prole">${esc(conf)}</span>
               </div>
               <button class="write-btn" data-seg="${index}" data-w="${index}-${pi}"
-                data-name="${esc(p.name || '')}" data-title="${esc(p.title || '')}" data-company="${esc(p.company || '')}">Write email</button>
+                data-name="${esc(p.name || '')}" data-title="${esc(p.title || '')}" data-company="${esc(p.company || '')}"
+                data-email="${esc(p.email || '')}">Write email</button>
             </div>
             <div class="written" id="written-${index}-${pi}"></div>
           </div>`;
@@ -469,14 +565,175 @@
           <div class="subj">${esc(em.subject || '')}</div>
           <div class="body">${esc(em.body || '')}</div>
           <button class="copy" data-copy="${esc((em.subject ? em.subject + '\n\n' : '') + (em.body || ''))}">Copy</button>
+          <button class="copy queue-one"${btn.dataset.email ? '' : ' disabled title="no email on file"'}>Add to outreach</button>
         </div>`;
       out.querySelector('.copy').onclick = (e) => {
         navigator.clipboard.writeText(e.target.dataset.copy); e.target.textContent = 'Copied ✓';
       };
+      const qBtn = out.querySelector('.queue-one');
+      if (btn.dataset.email) {
+        qBtn.onclick = () => queueOne(qBtn, {
+          name: btn.dataset.name, email: btn.dataset.email, company: btn.dataset.company,
+          title: btn.dataset.title, segment: seg.name || '', subject: em.subject || '', body: em.body || '',
+        });
+      }
       btn.disabled = false; btn.textContent = 'Rewrite';
     } catch (e) {
       btn.disabled = false; btn.textContent = 'Retry'; btn.title = e.message;
     }
+  }
+
+  // ---- Stage 4: queue one prospect as a draft ----
+  async function queueOne(btn, prospect) {
+    btn.disabled = true; btn.textContent = 'Adding…';
+    try {
+      await api({ mode: 'queue', prospects: [prospect] });
+      btn.textContent = 'Added to Outbox ✓';
+      refreshOutboxCount();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Retry'; btn.title = e.message;
+    }
+  }
+
+  async function refreshOutboxCount() {
+    try {
+      const { rows } = await api({ mode: 'outbox' });
+      const drafts = rows.filter(r => r.status === 'draft').length;
+      el('outboxCount').textContent = drafts ? `(${drafts})` : '';
+    } catch { /* ignore */ }
+  }
+
+  // ---- Stage 4: sender settings ----
+  let settingsLoaded = false;
+  async function loadSettings() {
+    if (settingsLoaded) return;
+    try {
+      const { settings } = await api({ mode: 'settings_get' });
+      if (settings) {
+        el('s_from_name').value = settings.from_name || '';
+        el('s_from_email').value = settings.from_email || '';
+        el('s_reply_to').value = settings.reply_to || '';
+        el('s_signature').value = settings.signature || '';
+        el('s_physical_address').value = settings.physical_address || '';
+        el('s_daily_cap').value = settings.daily_cap || 50;
+      }
+      const ready = settings && settings.from_email && settings.physical_address;
+      el('settingsWarn').textContent = ready ? '' : '— set this before sending';
+      if (!ready) el('senderSettings').open = true;
+      settingsLoaded = true;
+    } catch { /* ignore */ }
+  }
+  el('saveSettingsBtn').onclick = async () => {
+    el('saveSettingsBtn').disabled = true;
+    el('settingsHint').textContent = 'Saving…';
+    try {
+      await api({ mode: 'settings_save', settings: {
+        from_name: el('s_from_name').value, from_email: el('s_from_email').value,
+        reply_to: el('s_reply_to').value, signature: el('s_signature').value,
+        physical_address: el('s_physical_address').value, daily_cap: el('s_daily_cap').value,
+      }});
+      el('settingsHint').textContent = 'Saved ✓';
+      const ready = el('s_from_email').value && el('s_physical_address').value;
+      el('settingsWarn').textContent = ready ? '' : '— set this before sending';
+    } catch (e) {
+      el('settingsHint').textContent = 'Error: ' + e.message;
+    } finally {
+      el('saveSettingsBtn').disabled = false;
+    }
+  };
+
+  // ---- Stage 4: outbox / campaigns ----
+  async function renderOutbox() {
+    const box = el('outboxList');
+    box.innerHTML = '<div class="ob-empty">Loading…</div>';
+    let rows;
+    try { rows = (await api({ mode: 'outbox' })).rows; }
+    catch (e) { box.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+
+    if (!rows.length) {
+      box.innerHTML = `<div class="ob-empty">No outreach yet. Find prospects, write an email, then "Add to outreach".</div>`;
+      return;
+    }
+
+    // Group rows into sequences (one prospect + its follow-up steps).
+    const seqs = {};
+    rows.forEach(r => { (seqs[r.sequence_id] ||= []).push(r); });
+    const groups = Object.values(seqs).sort((a, b) => new Date(b[0].created_at) - new Date(a[0].created_at));
+    const draftCount = rows.filter(r => r.status === 'draft').length;
+
+    let html = `<div class="ob-toolbar">
+      <div class="prospects-total">${groups.length} prospect${groups.length !== 1 ? 's' : ''} · ${draftCount} awaiting approval</div>
+      ${draftCount ? `<button class="btn" id="approveAllBtn">Approve &amp; schedule all ${draftCount} drafts →</button>` : ''}
+    </div>`;
+
+    groups.forEach(g => {
+      g.sort((a, b) => a.step - b.step);
+      const lead = g[0];
+      const statuses = g.map(r => r.status);
+      const overall = statuses.includes('draft') ? 'draft'
+        : statuses.includes('approved') ? 'approved'
+        : statuses.includes('paused') ? 'paused'
+        : statuses.includes('replied') ? 'replied'
+        : statuses.every(s => s === 'sent') ? 'sent'
+        : statuses.includes('sent') ? 'sent' : statuses[0];
+      const stepsLine = g.map(r => {
+        const label = r.step === 0 ? 'Initial' : 'Follow-up ' + r.step;
+        const when = r.status === 'sent' ? 'sent' : ('when ' + new Date(r.send_after).toLocaleDateString());
+        return `${label}: <span class="badge ${r.status}">${r.status}</span> <span style="opacity:.7">${when}</span>`;
+      }).join(' &nbsp;·&nbsp; ');
+
+      const isDraft = lead.status === 'draft';
+      const canPause = statuses.includes('approved');
+      const canResume = lead.status !== 'draft' && statuses.includes('paused');
+      const notReplied = !statuses.includes('replied') && !statuses.every(s => s === 'sent');
+
+      html += `
+        <div class="campaign" data-seq="${esc(lead.sequence_id)}">
+          <div class="chead">
+            <div>
+              <div class="cname">${esc(lead.prospect_name || lead.prospect_email)}${lead.prospect_company ? ' · ' + esc(lead.prospect_company) : ''}</div>
+              <div class="csub">${esc(lead.prospect_title || '')}${lead.prospect_title ? ' — ' : ''}${esc(lead.prospect_email)}${lead.segment_name ? ' · ' + esc(lead.segment_name) : ''}</div>
+            </div>
+            <span class="badge ${overall}">${overall}</span>
+          </div>
+          <div class="steps-row">${stepsLine}</div>
+          <div class="cactions">
+            ${isDraft ? `<button class="primary act-approve">Approve &amp; schedule →</button>` : ''}
+            ${canPause ? `<button class="act-pause">Pause</button>` : ''}
+            ${canResume ? `<button class="act-resume">Resume</button>` : ''}
+            ${notReplied ? `<button class="act-replied">Mark replied (stop)</button>` : ''}
+          </div>
+        </div>`;
+    });
+
+    box.innerHTML = html;
+
+    const approveAll = el('approveAllBtn');
+    if (approveAll) approveAll.onclick = async () => {
+      const ids = rows.filter(r => r.status === 'draft').map(r => r.id);
+      approveAll.disabled = true; approveAll.textContent = 'Scheduling…';
+      try { await api({ mode: 'approve', ids }); await renderOutbox(); refreshOutboxCount(); }
+      catch (e) { approveAll.disabled = false; approveAll.textContent = 'Retry'; approveAll.title = e.message; }
+    };
+
+    box.querySelectorAll('.campaign').forEach(card => {
+      const seq = card.dataset.seq;
+      const draftIds = (seqs[seq] || []).filter(r => r.status === 'draft').map(r => r.id);
+      const wire = (sel, payload, confirmMsg) => {
+        const b = card.querySelector(sel);
+        if (!b) return;
+        b.onclick = async () => {
+          if (confirmMsg && !confirm(confirmMsg)) return;
+          b.disabled = true;
+          try { await api(payload); await renderOutbox(); refreshOutboxCount(); }
+          catch (e) { b.disabled = false; b.title = e.message; b.textContent = 'Retry'; }
+        };
+      };
+      wire('.act-approve', { mode: 'approve', ids: draftIds });
+      wire('.act-pause', { mode: 'pause', sequence_id: seq });
+      wire('.act-resume', { mode: 'resume', sequence_id: seq });
+      wire('.act-replied', { mode: 'mark_replied', sequence_id: seq }, 'Stop all pending emails to this prospect?');
+    });
   }
 
   sb.auth.onAuthStateChange(() => refreshAuth());
