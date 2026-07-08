@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lumen SDR — AI agents that qualify clients while you sleep</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #05070a;
+    --panel: #0b1016;
+    --panel-2: #0f151d;
+    --line: #1b2530;
+    --text: #e7edf3;
+    --muted: #8a97a6;
+    --accent: #34d399;
+    --accent-dim: #0e3a2c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(1200px 600px at 50% -100px, #0a1f18 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px 80px; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 4px; border-bottom: 1px solid var(--line); margin-bottom: 48px;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; }
+  .logo .mark {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent), #0891b2);
+  }
+  .who { font-size: 13px; color: var(--muted); }
+  .who button {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+
+  h1 {
+    font-size: 40px; line-height: 1.12; font-weight: 700; text-align: center;
+    margin: 8px 0 20px; letter-spacing: -0.02em;
+  }
+  h1 .g { color: var(--accent); }
+  .sub {
+    text-align: center; color: var(--muted); font-size: 16px; line-height: 1.6;
+    max-width: 560px; margin: 0 auto 36px;
+  }
+  .sub b { color: var(--text); font-weight: 600; }
+
+  .searchbox {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 6px; display: flex; gap: 8px; box-shadow: 0 0 0 1px rgba(52,211,153,0.06), 0 0 40px rgba(52,211,153,0.05);
+  }
+  .searchbox input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font-size: 17px; padding: 16px 14px;
+  }
+  .searchbox input::placeholder { color: #56606c; }
+  .btn {
+    background: var(--accent); color: #04120c; border: none; border-radius: 10px;
+    padding: 0 22px; font-weight: 700; font-size: 15px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent-dim); }
+
+  .hint { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
+
+  /* auth panel */
+  .auth {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 24px; text-align: center; margin-top: 8px;
+  }
+  .auth input {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--text); font-size: 15px; padding: 13px 14px; border-radius: 10px; outline: none; margin: 14px 0;
+  }
+  .auth .btn { width: 100%; justify-content: center; padding: 14px; }
+
+  /* status / progress */
+  .status { text-align: center; color: var(--muted); margin-top: 30px; font-size: 15px; }
+  .dots::after { content: ""; animation: dots 1.4s steps(4,end) infinite; }
+  @keyframes dots { 0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."} 100%{content:""} }
+  .steps { list-style: none; padding: 0; max-width: 380px; margin: 24px auto 0; }
+  .steps li { display: flex; align-items: center; gap: 12px; padding: 9px 0; color: var(--muted); font-size: 14px; }
+  .steps li.done { color: var(--text); }
+  .steps li.active { color: var(--accent); }
+  .steps .tick {
+    width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--line);
+    display: flex; align-items: center; justify-content: center; font-size: 11px; flex: none;
+  }
+  .steps li.done .tick { background: var(--accent); border-color: var(--accent); color: #04120c; }
+  .steps li.active .tick { border-color: var(--accent); }
+
+  /* results */
+  .company-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px; margin-top: 36px;
+  }
+  .company-card .cat {
+    display: inline-block; font-size: 12px; color: var(--accent); background: var(--accent-dim);
+    padding: 3px 10px; border-radius: 20px; margin-bottom: 10px;
+  }
+  .company-card h2 { margin: 0 0 6px; font-size: 22px; }
+  .company-card p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+
+  .seg-head { margin: 40px 0 4px; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+
+  .seg {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px; margin-top: 16px;
+  }
+  .seg .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .seg h3 { margin: 0; font-size: 18px; }
+  .seg .rank { font-size: 12px; color: var(--muted); }
+  .seg .why { color: var(--muted); font-size: 14px; margin: 8px 0 16px; line-height: 1.5; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; margin-bottom: 16px; }
+  .meta .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #5d6976; margin-bottom: 4px; }
+  .meta .v { font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); padding: 4px 10px; border-radius: 8px; }
+  .chip.role { border-color: var(--accent-dim); color: var(--accent); }
+
+  .email {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-top: 14px;
+  }
+  .email .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #5d6976; margin-bottom: 8px; }
+  .email .subj { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+  .email .body { font-size: 14px; color: #c4cdd6; white-space: pre-wrap; line-height: 1.55; }
+  .email .copy {
+    margin-top: 12px; background: none; border: 1px solid var(--line); color: var(--muted);
+    font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+  }
+
+  /* stage 2 — prospects */
+  .find-btn {
+    margin-top: 16px; width: 100%; background: transparent; border: 1px solid var(--accent-dim);
+    color: var(--accent); font-size: 14px; font-weight: 600; padding: 11px; border-radius: 10px; cursor: pointer;
+  }
+  .find-btn:disabled { opacity: 0.6; cursor: default; }
+  .prospects { margin-top: 14px; }
+  .prospect {
+    display: flex; align-items: center; gap: 12px; padding: 11px 4px;
+    border-top: 1px solid var(--line); font-size: 14px;
+  }
+  .prospect .pinfo { flex: 1; min-width: 0; }
+  .prospect .pname { font-weight: 600; }
+  .prospect .prole { color: var(--muted); font-size: 13px; }
+  .prospect a.li { color: var(--accent); font-size: 12px; text-decoration: none; }
+  .prospect .email-out { font-size: 13px; color: var(--accent); font-family: ui-monospace, monospace; }
+  .reveal-btn {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    font-size: 12px; padding: 6px 11px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  }
+  .reveal-btn:disabled { opacity: 0.6; cursor: default; }
+  .prospects-total { font-size: 12px; color: var(--muted); margin: 4px 0 2px; }
+
+  .err { text-align: center; color: #f87171; margin-top: 24px; font-size: 14px; }
+  .locked-note {
+    margin-top: 40px; border: 1px dashed var(--line); border-radius: 14px; padding: 20px;
+    text-align: center; color: var(--muted); font-size: 14px; line-height: 1.6;
+  }
+  .locked-note b { color: var(--text); }
+  @media (max-width: 560px) {
+    h1 { font-size: 30px; }
+    .meta { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><span class="mark"></span> Lumen SDR</div>
+    <div class="who" id="who"></div>
+  </header>
+
+  <h1>24/7 AI agents that <span class="g">qualify</span><br>clients while you sleep</h1>
+  <p class="sub">
+    In just <b>60 seconds</b>, fully on <b>autopilot</b> — your agent researches the market,
+    sharpens your ICP, builds buyer segments, and writes personalized outreach for each one.
+  </p>
+
+  <!-- Signed-out: magic-link login -->
+  <div id="authPanel" class="auth" style="display:none">
+    <div style="font-size:15px;color:var(--muted)">Sign in to run your agent</div>
+    <input id="emailInput" type="email" placeholder="you@company.com" autocomplete="email" />
+    <button class="btn" id="loginBtn">Send me a login link</button>
+    <div class="hint" id="authHint"></div>
+  </div>
+
+  <!-- Signed-in: the domain search -->
+  <div id="appPanel" style="display:none">
+    <div class="searchbox">
+      <input id="domainInput" type="text" placeholder="e.g. stripe.com" autocomplete="off" />
+      <button class="btn" id="runBtn">Analyze &nbsp;→</button>
+    </div>
+    <div class="hint">Enter your company's website. The agent reads it and builds your go-to-market plan.</div>
+
+    <div id="progress" style="display:none">
+      <ul class="steps" id="steps">
+        <li data-step="0"><span class="tick">1</span> Reading your website</li>
+        <li data-step="1"><span class="tick">2</span> Understanding what you sell</li>
+        <li data-step="2"><span class="tick">3</span> Building buyer segments</li>
+        <li data-step="3"><span class="tick">4</span> Writing outreach for each</li>
+      </ul>
+    </div>
+
+    <div id="results"></div>
+    <div id="error" class="err"></div>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://apvslzcldlqzskawpzzk.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_8hgovw8SLg4S4ZR2-p26Sg_v3CGpTPg';
+  const EDGE_FUNCTION_URL = SUPABASE_URL + '/functions/v1/prospector';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  // ---- auth ----
+  async function refreshAuth() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) {
+      el('authPanel').style.display = 'none';
+      el('appPanel').style.display = 'block';
+      el('who').innerHTML = esc(session.user.email) + ' &nbsp;<button id="logoutBtn">Sign out</button>';
+      el('logoutBtn').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+    } else {
+      el('authPanel').style.display = 'block';
+      el('appPanel').style.display = 'none';
+      el('who').innerHTML = '';
+    }
+  }
+
+  el('loginBtn').onclick = async () => {
+    const email = el('emailInput').value.trim();
+    if (!email.includes('@')) { el('authHint').textContent = 'Enter a valid email.'; return; }
+    el('loginBtn').disabled = true;
+    el('authHint').textContent = 'Sending…';
+    const { error } = await sb.auth.signInWithOtp({
+      email, options: { emailRedirectTo: location.href.split('#')[0] }
+    });
+    el('loginBtn').disabled = false;
+    el('authHint').textContent = error
+      ? 'Error: ' + error.message
+      : 'Check your inbox for a login link, then come back here.';
+  };
+
+  // ---- the pipeline ----
+  let stepTimer = null;
+  function runSteps() {
+    el('progress').style.display = 'block';
+    const lis = el('steps').querySelectorAll('li');
+    lis.forEach(li => li.className = '');
+    let i = 0;
+    const advance = () => {
+      lis.forEach((li, idx) => {
+        li.className = idx < i ? 'done' : idx === i ? 'active' : '';
+      });
+      i++;
+      if (i <= lis.length) stepTimer = setTimeout(advance, 1400);
+    };
+    advance();
+  }
+  function finishSteps() {
+    clearTimeout(stepTimer);
+    el('steps').querySelectorAll('li').forEach(li => li.className = 'done');
+    setTimeout(() => { el('progress').style.display = 'none'; }, 400);
+  }
+
+  el('runBtn').onclick = analyze;
+  el('domainInput').addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+
+  async function analyze() {
+    const domain = el('domainInput').value.trim();
+    if (!domain) return;
+    el('error').textContent = '';
+    el('results').innerHTML = '';
+    el('runBtn').disabled = true;
+    runSteps();
+
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + session.access_token,
+        },
+        body: JSON.stringify({ mode: 'analyze', domain }),
+      });
+      const data = await res.json();
+      finishSteps();
+      if (!res.ok || data.error) { el('error').textContent = data.error || 'Something went wrong.'; return; }
+      render(data);
+    } catch (e) {
+      finishSteps();
+      el('error').textContent = 'Network error: ' + e.message;
+    } finally {
+      el('runBtn').disabled = false;
+    }
+  }
+
+  let lastResult = null;
+  function render(data) {
+    lastResult = data;
+    const c = data.company || {};
+    const segs = data.segments || [];
+    let html = `
+      <div class="company-card">
+        <span class="cat">${esc(c.category || 'Company')}</span>
+        <h2>${esc(c.name || data.domain)}</h2>
+        <p>${esc(c.one_liner || c.what_they_sell || '')}</p>
+      </div>
+      <div class="seg-head">Auto-built buyer segments · best fit first</div>
+    `;
+
+    segs.forEach((s, i) => {
+      const dm = (s.decision_makers || []).map(r => `<span class="chip role">${esc(r)}</span>`).join('');
+      const pains = (s.pain_points || []).map(p => `<span class="chip">${esc(p)}</span>`).join('');
+      const sig = (s.signals || []).map(p => `<span class="chip">${esc(p)}</span>`).join('');
+      const em = s.sample_email || {};
+      html += `
+        <div class="seg">
+          <div class="top">
+            <h3>${esc(s.name)}</h3>
+            <span class="rank">#${i + 1} fit</span>
+          </div>
+          <div class="why">${esc(s.why || '')}</div>
+          <div class="meta">
+            <div><div class="k">Industry</div><div class="v">${esc(s.industry || '—')}</div></div>
+            <div><div class="k">Company size</div><div class="v">${esc(s.company_size || '—')}</div></div>
+          </div>
+          ${dm ? `<div class="k" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5d6976;margin-bottom:6px">Decision-makers to target</div><div class="chips" style="margin-bottom:14px">${dm}</div>` : ''}
+          ${pains ? `<div class="k" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5d6976;margin-bottom:6px">Pain points you solve</div><div class="chips" style="margin-bottom:14px">${pains}</div>` : ''}
+          ${sig ? `<div class="k" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5d6976;margin-bottom:6px">Buying signals to watch</div><div class="chips">${sig}</div>` : ''}
+          ${em.body ? `
+          <div class="email">
+            <div class="label">Sample outreach — ready to send</div>
+            <div class="subj">${esc(em.subject || '')}</div>
+            <div class="body">${esc(em.body || '')}</div>
+            <button class="copy" data-copy="${esc((em.subject ? em.subject + '\n\n' : '') + (em.body || ''))}">Copy</button>
+          </div>` : ''}
+          <button class="find-btn" data-index="${i}">Find real prospects in this segment &nbsp;→</button>
+          <div class="prospects" id="prospects-${i}"></div>
+        </div>
+      `;
+    });
+
+    html += `
+      <div class="locked-note">
+        <b>Next: full autopilot.</b> Prospect-finding is live — reveal emails above, then the last step is
+        auto-sending and following up on a schedule (Resend + pg_cron), so the whole loop runs while you sleep.
+        <br>Ask to turn on Stage 4.
+      </div>`;
+
+    el('results').innerHTML = html;
+    el('results').querySelectorAll('.copy').forEach(b => {
+      b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied ✓'; };
+    });
+    el('results').querySelectorAll('.find-btn').forEach(b => {
+      b.onclick = () => findProspects(Number(b.dataset.index), b);
+    });
+  }
+
+  // Stage 2: run one segment through Apollo and list the people it finds.
+  async function findProspects(index, btn) {
+    const seg = (lastResult.segments || [])[index];
+    if (!seg) return;
+    const box = el('prospects-' + index);
+    btn.disabled = true;
+    btn.textContent = 'Searching Apollo…';
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+        body: JSON.stringify({ mode: 'find', segment: seg }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        box.innerHTML = `<div class="err" style="text-align:left;margin-top:10px">${esc(data.error || 'Search failed.')}</div>`;
+        btn.disabled = false; btn.innerHTML = 'Find real prospects in this segment &nbsp;→';
+        return;
+      }
+      const people = data.people || [];
+      if (!people.length) {
+        box.innerHTML = `<div class="prospects-total">No matching people found — try broadening the segment.</div>`;
+        btn.disabled = false; btn.innerHTML = 'Find real prospects in this segment &nbsp;→';
+        return;
+      }
+      let h = `<div class="prospects-total">${data.total.toLocaleString()} people match · showing ${people.length}</div>`;
+      people.forEach(p => {
+        h += `
+          <div class="prospect">
+            <div class="pinfo">
+              <div class="pname">${esc(p.name || '—')}</div>
+              <div class="prole">${esc(p.title || '')}${p.company ? ' · ' + esc(p.company) : ''}
+                ${p.linkedin ? ` · <a class="li" href="${esc(p.linkedin)}" target="_blank" rel="noopener">LinkedIn</a>` : ''}</div>
+            </div>
+            <button class="reveal-btn" data-id="${esc(p.id)}">Reveal email</button>
+          </div>`;
+      });
+      box.innerHTML = h;
+      box.querySelectorAll('.reveal-btn').forEach(rb => { rb.onclick = () => revealEmail(rb); });
+      btn.textContent = 'Prospects found ✓';
+    } catch (e) {
+      box.innerHTML = `<div class="err" style="text-align:left;margin-top:10px">Network error: ${esc(e.message)}</div>`;
+      btn.disabled = false; btn.innerHTML = 'Find real prospects in this segment &nbsp;→';
+    }
+  }
+
+  // Stage 2: unlock one prospect's email. Costs one Apollo credit, so it only
+  // ever fires on this explicit click.
+  async function revealEmail(btn) {
+    const id = btn.dataset.id;
+    btn.disabled = true;
+    btn.textContent = 'Revealing…';
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+        body: JSON.stringify({ mode: 'unlock', id }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { btn.disabled = false; btn.textContent = 'Retry'; btn.title = data.error || ''; return; }
+      const out = document.createElement('span');
+      out.className = 'email-out';
+      out.textContent = data.email || 'no email on file';
+      if (data.email) {
+        out.style.cursor = 'pointer';
+        out.title = 'Click to copy';
+        out.onclick = () => { navigator.clipboard.writeText(data.email); out.textContent = data.email + ' ✓'; };
+      }
+      btn.replaceWith(out);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Retry'; btn.title = e.message;
+    }
+  }
+
+  sb.auth.onAuthStateChange(() => refreshAuth());
+  refreshAuth();
+</script>
+</body>
+</html>

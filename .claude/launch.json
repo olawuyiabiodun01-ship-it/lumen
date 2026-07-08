@@ -6,6 +6,18 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "3030", "--directory", "C:\\Users\\Adetunji\\Desktop\\MAMA-MEMORIAL"],
       "port": 3030
+    },
+    {
+      "name": "family-vault",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "3040", "--directory", "C:\\Users\\Adetunji\\Desktop\\LUMEN\\vault"],
+      "port": 3040
+    },
+    {
+      "name": "lumen-sdr",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "3050", "--directory", "C:\\Users\\Adetunji\\Desktop\\LUMEN"],
+      "port": 3050
     }
   ]
 }
