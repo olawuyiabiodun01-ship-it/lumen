@@ -4,14 +4,32 @@
 // (as the FAMILY_VAULT_PASSWORD secret), never in the browser code. Every
 // request must carry the correct password; storage itself is a private
 // bucket only this function (via the service role) can touch.
+//
+// Documents are organised like a library: each member has a set of fixed
+// shelves (certificates, id-cards, ...). One shelf, "confidential", needs a
+// SECOND secret (FAMILY_VAULT_PRIVATE_CODE) before it will open at all.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const BUCKET = "family-vault";
 
-// The only folders that exist. Anything else in a request is rejected,
-// which also blocks path tricks like "../" reaching storage.
+// The only member folders that exist. Anything else is rejected, which also
+// blocks path tricks like "../" reaching storage.
 const MEMBERS = ["abiodun", "adeola", "jadesola", "motilayo", "family"];
+
+// The only shelves that exist inside each member folder.
+const SHELVES = [
+  "certificates",
+  "id-cards",
+  "permits",
+  "admission",
+  "job-career",
+  "other",
+  "confidential",
+];
+
+// This shelf is gated by the extra secret code.
+const LOCKED_SHELF = "confidential";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -31,7 +49,6 @@ async function ensureBucket() {
     public: false,
     fileSizeLimit: "50MB",
   });
-  // "already exists" is the normal case after the first ever request
   if (error && !/already|duplicate/i.test(error.message)) throw error;
   bucketReady = true;
 }
@@ -49,11 +66,29 @@ function sanitizeName(name: string): string {
   return cleaned.length ? cleaned.slice(0, 120) : "file";
 }
 
-// A stored path must be exactly "<member>/<one segment>".
+// A stored document path must be exactly "<member>/<shelf>/<file>".
 function validPath(path: string): boolean {
   const parts = path.split("/");
-  return parts.length === 2 && MEMBERS.includes(parts[0]) &&
-    parts[1].length > 0 && !parts[1].includes("..");
+  return parts.length === 3 && MEMBERS.includes(parts[0]) &&
+    SHELVES.includes(parts[1]) && parts[2].length > 0 && !path.includes("..");
+}
+
+// Returns an error Response if the shelf is locked and the code is wrong,
+// otherwise null (access allowed).
+function guardLocked(shelf: string, code: string | undefined): Response | null {
+  if (shelf !== LOCKED_SHELF) return null;
+  const secret = Deno.env.get("FAMILY_VAULT_PRIVATE_CODE");
+  if (!secret) return json({ error: "Secret code not configured" }, 500);
+  if (code !== secret) return json({ error: "code", locked: true }, 403);
+  return null;
+}
+
+async function countShelf(member: string, shelf: string): Promise<number> {
+  const { data } = await supabase.storage.from(BUCKET).list(
+    `${member}/${shelf}`,
+    { limit: 1000 },
+  );
+  return (data ?? []).filter((f) => f.id).length;
 }
 
 Deno.serve(async (req) => {
@@ -70,8 +105,7 @@ Deno.serve(async (req) => {
   const expected = Deno.env.get("FAMILY_VAULT_PASSWORD");
   if (!expected) return json({ error: "Vault password not configured" }, 500);
   if (body.password !== expected) {
-    // Small delay so the password can't be guessed rapidly
-    await new Promise((r) => setTimeout(r, 1200));
+    await new Promise((r) => setTimeout(r, 1200)); // slow down guessing
     return json({ error: "Wrong password" }, 401);
   }
 
@@ -95,19 +129,44 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Verify the confidential secret code without opening anything.
+      case "check-code": {
+        const blocked = guardLocked(LOCKED_SHELF, body.code);
+        return blocked ?? json({ ok: true });
+      }
+
+      // How many documents sit on each shelf, for the library overview.
+      case "overview": {
+        if (!MEMBERS.includes(body.member)) {
+          return json({ error: "Unknown member" }, 400);
+        }
+        const counts: Record<string, number> = {};
+        await Promise.all(
+          SHELVES.map(async (s) => (counts[s] = await countShelf(body.member, s))),
+        );
+        return json({ counts });
+      }
+
       case "list": {
         if (!MEMBERS.includes(body.member)) {
           return json({ error: "Unknown member" }, 400);
         }
+        if (!SHELVES.includes(body.shelf)) {
+          return json({ error: "Unknown shelf" }, 400);
+        }
+        const blocked = guardLocked(body.shelf, body.code);
+        if (blocked) return blocked;
+
+        const prefix = `${body.member}/${body.shelf}`;
         const { data, error } = await supabase.storage.from(BUCKET).list(
-          body.member,
+          prefix,
           { limit: 1000, sortBy: { column: "created_at", order: "desc" } },
         );
         if (error) throw error;
         const files = (data ?? [])
           .filter((f) => f.id) // folders have no id
           .map((f) => ({
-            path: `${body.member}/${f.name}`,
+            path: `${prefix}/${f.name}`,
             name: f.name.replace(/^\d{13}-/, ""), // hide the timestamp prefix
             size: f.metadata?.size ?? 0,
             type: f.metadata?.mimetype ?? "",
@@ -118,23 +177,35 @@ Deno.serve(async (req) => {
 
       case "upload-url": {
         // "_app" holds the app's own UI photos — fixed names, overwritable
-        const isApp = body.member === "_app";
-        if (!isApp && !MEMBERS.includes(body.member)) {
+        if (body.member === "_app") {
+          const path = `_app/${sanitizeName(body.filename ?? "file")}`;
+          const { data, error } = await supabase.storage.from(BUCKET)
+            .createSignedUploadUrl(path, { upsert: true });
+          if (error) throw error;
+          return json({ path, signedUrl: data.signedUrl });
+        }
+        if (!MEMBERS.includes(body.member)) {
           return json({ error: "Unknown member" }, 400);
         }
-        const path = isApp
-          ? `_app/${sanitizeName(body.filename ?? "file")}`
-          : `${body.member}/${Date.now()}-${
-            sanitizeName(body.filename ?? "file")
-          }`;
+        if (!SHELVES.includes(body.shelf)) {
+          return json({ error: "Unknown shelf" }, 400);
+        }
+        const blocked = guardLocked(body.shelf, body.code);
+        if (blocked) return blocked;
+
+        const path = `${body.member}/${body.shelf}/${Date.now()}-${
+          sanitizeName(body.filename ?? "file")
+        }`;
         const { data, error } = await supabase.storage.from(BUCKET)
-          .createSignedUploadUrl(path, { upsert: true });
+          .createSignedUploadUrl(path);
         if (error) throw error;
         return json({ path, signedUrl: data.signedUrl });
       }
 
       case "file-url": {
         if (!validPath(body.path ?? "")) return json({ error: "Bad path" }, 400);
+        const blocked = guardLocked(body.path.split("/")[1], body.code);
+        if (blocked) return blocked;
         const { data, error } = await supabase.storage.from(BUCKET)
           .createSignedUrl(body.path, 3600);
         if (error) throw error;
@@ -143,6 +214,8 @@ Deno.serve(async (req) => {
 
       case "delete": {
         if (!validPath(body.path ?? "")) return json({ error: "Bad path" }, 400);
+        const blocked = guardLocked(body.path.split("/")[1], body.code);
+        if (blocked) return blocked;
         const { error } = await supabase.storage.from(BUCKET)
           .remove([body.path]);
         if (error) throw error;

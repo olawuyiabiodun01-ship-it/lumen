@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Olawuyi Family Vault</title>
-<meta name="description" content="A private vault for the Olawuyi family's receipts and special documents.">
+<meta name="description" content="A private library for the Olawuyi family's documents and receipts.">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -18,20 +18,17 @@
   html,body{height:100%}
   body{
     font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
-    background:var(--bg); color:var(--text);
-    min-height:100dvh;
+    background:var(--bg); color:var(--text); min-height:100dvh;
   }
   body::before{
     content:''; position:fixed; inset:0; z-index:-1;
     background:radial-gradient(1200px 600px at 50% -10%, #2a2138 0%, var(--bg) 60%);
   }
-  /* once unlocked, the whole family holds the vault together —
-     the photo arrives via a signed URL, never from public files */
+  /* once unlocked, the family photo backdrop arrives via signed URL */
   body.has-photo::before{
     background:
-      linear-gradient(rgba(20,16,25,.42), rgba(20,16,25,.6)),
-      var(--photo-url) center/cover no-repeat,
-      var(--bg);
+      linear-gradient(rgba(20,16,25,.5), rgba(20,16,25,.66)),
+      var(--photo-url) center/cover no-repeat, var(--bg);
   }
   .wrap{max-width:680px; margin:0 auto; padding:20px 16px calc(40px + env(safe-area-inset-bottom))}
   .hidden{display:none !important}
@@ -44,10 +41,7 @@
     background:linear-gradient(145deg,#3b2f52,#241c33); border:1px solid var(--line);
     font-size:42px; margin-bottom:18px; box-shadow:0 12px 40px rgba(0,0,0,.45);
   }
-  #emblem{
-    width:48px; height:48px; border-radius:50%; object-fit:cover;
-    border:2px solid var(--gold); flex:none;
-  }
+  #emblem{width:48px; height:48px; border-radius:50%; object-fit:cover; border:2px solid var(--gold); flex:none}
   #login h1{font-size:26px; letter-spacing:.3px}
   #login .sub{color:var(--muted); margin:8px 0 28px; font-size:15px}
   .pwrow{display:flex; gap:8px; width:100%; max-width:360px}
@@ -57,18 +51,23 @@
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   .pwrow input:focus{border-color:var(--gold)}
-  .btn-gold{
-    background:var(--gold); color:#241a05; font-weight:600; padding:14px 20px;
-    border-radius:14px; transition:transform .1s;
-  }
+  .btn-gold{background:var(--gold); color:#241a05; font-weight:600; padding:14px 20px; border-radius:14px; transition:transform .1s}
   .btn-gold:active{transform:scale(.97)}
   #login-err{color:var(--danger); min-height:22px; margin-top:14px; font-size:14px}
 
-  /* ---------- home ---------- */
+  /* ---------- headers ---------- */
   header{display:flex; align-items:center; justify-content:space-between; margin-bottom:22px}
   header h1{font-size:21px}
   header .small{color:var(--muted); font-size:13px; margin-top:3px}
   .link{color:var(--muted); font-size:13px; text-decoration:underline; padding:6px}
+  .nav-head{display:flex; align-items:center; gap:12px; margin-bottom:20px}
+  .back{font-size:22px; padding:6px 12px 6px 0; color:var(--muted)}
+  .avatar{
+    width:46px; height:46px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:18px; color:#1b1424; background:var(--accent);
+  }
+
+  /* ---------- members ---------- */
   .cards{display:grid; grid-template-columns:1fr 1fr; gap:12px}
   .card{
     text-align:left; background:var(--panel); border:1px solid var(--line); border-radius:18px;
@@ -76,19 +75,33 @@
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   .card:active{transform:scale(.98)}
-  .card:hover{border-color:var(--accent)}
   .card.family{grid-column:1 / -1; flex-direction:row; align-items:center}
-  .avatar{
-    width:46px; height:46px; border-radius:50%; flex:none;
-    display:flex; align-items:center; justify-content:center;
-    font-weight:700; font-size:18px; color:#1b1424; background:var(--accent);
-  }
   .card .name{font-weight:600; font-size:17px}
   .card .role{color:var(--muted); font-size:13px}
 
-  /* ---------- member view ---------- */
-  .member-head{display:flex; align-items:center; gap:12px; margin-bottom:18px}
-  .back{font-size:22px; padding:6px 10px 6px 0; color:var(--muted)}
+  /* ---------- shelves (library) ---------- */
+  .shelf-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  .shelf{
+    text-align:left; position:relative; overflow:hidden;
+    background:var(--panel); border:1px solid var(--line); border-left:5px solid var(--spine);
+    border-radius:14px; padding:16px 14px 16px 16px; min-height:112px;
+    display:flex; flex-direction:column; gap:6px; transition:transform .1s, border-color .15s;
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  }
+  .shelf:active{transform:translateY(2px)}
+  .shelf-emoji{font-size:26px}
+  .shelf-name{font-weight:600; font-size:15.5px; line-height:1.2}
+  .shelf-hint{color:var(--muted); font-size:12px; line-height:1.3}
+  .shelf-count{
+    margin-top:auto; font-size:12.5px; color:var(--gold); font-weight:600; letter-spacing:.2px;
+  }
+  .shelf-count.empty{color:var(--muted); font-weight:400}
+  .shelf .lockpill{
+    position:absolute; top:12px; right:12px; font-size:11px; color:var(--muted);
+    border:1px solid var(--line); border-radius:20px; padding:2px 8px;
+  }
+
+  /* ---------- files ---------- */
   .actions{display:flex; gap:10px; margin-bottom:16px}
   .actions .btn-gold{flex:1; text-align:center; font-size:15px}
   .btn-plain{
@@ -118,11 +131,33 @@
   .fdel:hover{color:var(--danger)}
   .empty{color:var(--muted); text-align:center; padding:48px 20px; font-size:15px; line-height:1.6}
 
+  /* ---------- secret-code modal ---------- */
+  #code-modal{
+    position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    background:rgba(8,6,12,.66); backdrop-filter:blur(4px); padding:24px;
+  }
+  .sheet{
+    width:100%; max-width:340px; background:#211a2c; border:1px solid var(--line);
+    border-radius:20px; padding:24px 22px; box-shadow:0 20px 60px rgba(0,0,0,.6); text-align:center;
+  }
+  .sheet .lockicon{font-size:34px}
+  .sheet h3{font-size:19px; margin:8px 0 4px}
+  .sheet p{color:var(--muted); font-size:13.5px; margin-bottom:16px; line-height:1.5}
+  .sheet input{
+    width:100%; padding:13px 16px; border-radius:12px; border:1px solid var(--line);
+    background:#171220; color:var(--text); font-size:17px; text-align:center; letter-spacing:2px; outline:none;
+  }
+  .sheet input:focus{border-color:var(--gold)}
+  .sheet .row{display:flex; gap:10px; margin-top:16px}
+  .sheet .row button{flex:1; padding:13px; border-radius:12px; font-size:15px}
+  .sheet .cancel{background:var(--panel-2); border:1px solid var(--line)}
+  #code-err{color:var(--danger); min-height:20px; font-size:13px; margin-top:12px; margin-bottom:0}
+
   #toast{
     position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom)); transform:translateX(-50%);
     background:var(--panel-2); border:1px solid var(--line); color:var(--text);
     padding:12px 20px; border-radius:14px; font-size:14px; max-width:88vw;
-    box-shadow:0 10px 30px rgba(0,0,0,.5); transition:opacity .25s; opacity:0; pointer-events:none;
+    box-shadow:0 10px 30px rgba(0,0,0,.5); transition:opacity .25s; opacity:0; pointer-events:none; z-index:30;
   }
   #toast.show{opacity:1}
 </style>
@@ -133,7 +168,7 @@
 <div id="login">
   <div class="crest">🗝️</div>
   <h1>Olawuyi Family Vault</h1>
-  <p class="sub">Receipts &amp; special documents, kept safe for the four of us.</p>
+  <p class="sub">Documents &amp; receipts, arranged and kept safe for the four of us.</p>
   <form class="pwrow" id="login-form">
     <input id="pw" type="password" placeholder="Family password" autocomplete="current-password">
     <button class="btn-gold" type="submit">Open</button>
@@ -147,7 +182,7 @@
     <div style="display:flex; align-items:center; gap:12px">
       <img id="emblem" class="hidden" alt="">
       <div>
-        <h1>Family Vault</h1>
+        <h1>Family Library</h1>
         <p class="small">Whose documents?</p>
       </div>
     </div>
@@ -156,24 +191,54 @@
   <div class="cards" id="cards"></div>
 </div>
 
-<!-- One member's space -->
-<div id="member" class="wrap hidden">
-  <div class="member-head">
-    <button class="back" id="back">←</button>
-    <div class="avatar" id="m-avatar"></div>
+<!-- One member's library: the shelves -->
+<div id="shelves" class="wrap hidden">
+  <div class="nav-head">
+    <button class="back" id="shelves-back">←</button>
+    <div class="avatar" id="s-avatar"></div>
     <div>
-      <div class="name" id="m-name" style="font-weight:600; font-size:18px"></div>
-      <div class="role" id="m-count" style="color:var(--muted); font-size:13px"></div>
+      <div id="s-name" style="font-weight:600; font-size:18px"></div>
+      <div id="s-sub" style="color:var(--muted); font-size:13px">Pick a shelf</div>
+    </div>
+  </div>
+  <div class="shelf-grid" id="shelf-grid"></div>
+</div>
+
+<!-- One shelf: the documents on it -->
+<div id="shelf" class="wrap hidden">
+  <div class="nav-head">
+    <button class="back" id="shelf-back">←</button>
+    <div class="avatar" id="f-emoji" style="background:var(--accent, #3b2f52)"></div>
+    <div>
+      <div id="f-name" style="font-weight:600; font-size:18px"></div>
+      <div id="f-count" style="color:var(--muted); font-size:13px"></div>
     </div>
   </div>
   <div class="actions">
-    <button class="btn-gold" id="snap">📷 Snap receipt</button>
+    <button class="btn-gold" id="snap">📷 Snap</button>
     <button class="btn-plain" id="add">＋ Add file</button>
   </div>
-  <input id="search" type="search" placeholder="Search this space…">
+  <input id="search" type="search" placeholder="Search this shelf…">
   <div id="files"></div>
   <input type="file" id="file-cam" accept="image/*" capture="environment" class="hidden">
   <input type="file" id="file-any" multiple class="hidden">
+</div>
+
+<!-- Secret code prompt for the Confidential shelf -->
+<div id="code-modal" class="hidden">
+  <div class="sheet">
+    <div class="lockicon">🔒</div>
+    <h3>Confidential shelf</h3>
+    <p>Enter the secret code to open your most sensitive documents.</p>
+    <form id="code-form">
+      <input id="code-input" type="password" inputmode="text" placeholder="Secret code" autocomplete="off">
+      <p id="code-err"></p>
+      <div class="row">
+        <button type="button" class="cancel" id="code-cancel">Cancel</button>
+        <button type="submit" class="btn-gold" id="code-ok">Unlock</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -186,12 +251,25 @@ const MEMBERS = [
   { id:'adeola',   name:'Adeola',   role:'Mum',        color:'#e88fb4', emoji:'A' },
   { id:'jadesola', name:'Jadesola', role:'First born', color:'#8fd0e8', emoji:'J' },
   { id:'motilayo', name:'Motilayo', role:'Last born',  color:'#a5e88f', emoji:'M' },
-  { id:'family',   name:'Family',   role:'Shared — things that belong to all of us', color:'#c5aef2', emoji:'❤', family:true },
+  { id:'family',   name:'Family',   role:'Shared — belongs to all of us', color:'#c5aef2', emoji:'❤', family:true },
 ];
 
-let password = localStorage.getItem('vault-password') || '';
-let current = null;         // member object currently open
-let currentFiles = [];      // last fetched list for the open member
+// The shelves in every member's library. Keep ids in sync with the Edge Function.
+const SHELVES = [
+  { id:'certificates', name:'Certificates',       emoji:'🎓', hint:'School & academic',         color:'#e8b64c' },
+  { id:'id-cards',     name:'ID & Cards',         emoji:'🪪', hint:'ID cards, passport',        color:'#8fd0e8' },
+  { id:'permits',      name:'Permits & Residency',emoji:'🛂', hint:'Resident permits, visas',   color:'#a5e88f' },
+  { id:'admission',    name:'Admission Letters',  emoji:'🏫', hint:'School & course admissions',color:'#f0a9c8' },
+  { id:'job-career',   name:'Job & Career',       emoji:'💼', hint:'Offer & engagement letters',color:'#c5aef2' },
+  { id:'other',        name:'Other Documents',    emoji:'📁', hint:'Everything else',           color:'#bfb2d1' },
+  { id:'confidential', name:'Confidential',       emoji:'🔒', hint:'Locked with a secret code', color:'#e06b6b', locked:true },
+];
+
+let password   = localStorage.getItem('vault-password') || '';
+let privateCode = '';        // secret code for the confidential shelf (memory only)
+let current    = null;       // member object currently open
+let currentShelf = null;     // shelf object currently open
+let currentFiles = [];       // last fetched list for the open shelf
 
 const $ = (id) => document.getElementById(id);
 
@@ -207,18 +285,24 @@ async function api(action, extra = {}){
   const res = await fetch(FN_URL, {
     method:'POST',
     headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify({ action, password, ...extra }),
+    body: JSON.stringify({ action, password, ...(privateCode ? { code: privateCode } : {}), ...extra }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  if (!res.ok){
+    const err = new Error(data.error || 'Something went wrong');
+    err.locked = data.locked === true;   // 403 from the confidential shelf
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
-/* ---------- views ---------- */
+/* ---------- view switching ---------- */
 function show(view){
-  for (const v of ['login','home','member']) $(v).classList.toggle('hidden', v !== view);
+  for (const v of ['login','home','shelves','shelf']) $(v).classList.toggle('hidden', v !== view);
 }
 
+/* ---------- members ---------- */
 function renderHome(){
   const box = $('cards');
   box.innerHTML = '';
@@ -234,25 +318,68 @@ function renderHome(){
   show('home');
 }
 
+/* ---------- shelves overview ---------- */
 async function openMember(m){
   current = m;
-  $('m-avatar').style.background = m.color;
-  $('m-avatar').textContent = m.emoji;
-  $('m-name').textContent = m.family ? 'Family — shared' : `${m.name}’s space`;
-  $('m-count').textContent = 'Loading…';
+  $('s-avatar').style.background = m.color;
+  $('s-avatar').textContent = m.emoji;
+  $('s-name').textContent = m.family ? 'Family — shared' : `${m.name}’s library`;
+  const grid = $('shelf-grid');
+  grid.innerHTML = '';
+  show('shelves');
+
+  let counts = {};
+  try{ counts = (await api('overview', { member: m.id })).counts || {}; }
+  catch(e){ toast(e.message); }
+
+  for (const shelf of SHELVES){
+    const n = counts[shelf.id] ?? 0;
+    const b = document.createElement('button');
+    b.className = 'shelf';
+    b.style.setProperty('--spine', shelf.color);
+    b.innerHTML = `
+      ${shelf.locked ? '<span class="lockpill">🔒 code</span>' : ''}
+      <div class="shelf-emoji">${shelf.emoji}</div>
+      <div class="shelf-name">${shelf.name}</div>
+      <div class="shelf-hint">${shelf.hint}</div>
+      <div class="shelf-count ${n ? '' : 'empty'}">${n ? n + (n === 1 ? ' document' : ' documents') : 'Empty'}</div>`;
+    b.onclick = () => openShelf(shelf);
+    grid.appendChild(b);
+  }
+}
+
+/* ---------- one shelf's documents ---------- */
+async function openShelf(shelf){
+  // The confidential shelf needs the secret code first.
+  if (shelf.locked && !privateCode){
+    const code = await askCode();
+    if (code === null) return;   // cancelled
+    privateCode = code;
+  }
+  currentShelf = shelf;
+  $('f-emoji').textContent = shelf.emoji;
+  $('f-emoji').style.background = shelf.color;
+  $('f-name').textContent = shelf.name;
+  $('f-count').textContent = 'Loading…';
   $('search').value = '';
   $('files').innerHTML = '';
-  show('member');
+  show('shelf');
   await refresh();
 }
 
 async function refresh(){
   try{
-    const { files } = await api('list', { member: current.id });
+    const { files } = await api('list', { member: current.id, shelf: currentShelf.id });
     currentFiles = files;
     renderFiles();
   }catch(e){
-    $('m-count').textContent = '';
+    if (e.locked){        // code was wrong or changed — forget it and go back
+      privateCode = '';
+      toast('That code no longer works.');
+      openMember(current);
+      return;
+    }
+    $('f-count').textContent = '';
     toast(e.message);
   }
 }
@@ -267,7 +394,7 @@ function fmtDate(iso){
   return new Date(iso).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' });
 }
 function iconFor(f){
-  if (f.type.startsWith('image/')) return '🧾';
+  if (f.type.startsWith('image/')) return '🖼️';
   if (f.type === 'application/pdf') return '📄';
   if (/word|text/.test(f.type)) return '📝';
   return '📎';
@@ -276,15 +403,15 @@ function iconFor(f){
 function renderFiles(){
   const q = $('search').value.trim().toLowerCase();
   const list = currentFiles.filter(f => !q || f.name.toLowerCase().includes(q));
-  $('m-count').textContent = currentFiles.length
-    ? `${currentFiles.length} item${currentFiles.length === 1 ? '' : 's'}`
+  $('f-count').textContent = currentFiles.length
+    ? `${currentFiles.length} document${currentFiles.length === 1 ? '' : 's'}`
     : 'Nothing here yet';
 
   const box = $('files');
   box.innerHTML = '';
   if (!list.length){
     box.innerHTML = `<div class="empty">${
-      q ? 'No matches.' : 'This space is empty.<br>Snap a receipt or add a document to get started.'
+      q ? 'No matches on this shelf.' : 'This shelf is empty.<br>Snap a photo or add a document to get started.'
     }</div>`;
     return;
   }
@@ -300,7 +427,6 @@ function renderFiles(){
     row.querySelector('.fmeta').onclick = () => openFile(f);
     row.querySelector('.fdel').onclick = () => removeFile(f);
     box.appendChild(row);
-    // Small photo preview for images
     if (f.type.startsWith('image/')){
       api('file-url', { path: f.path }).then(({ url }) => {
         row.querySelector('.ficon').innerHTML = `<img src="${url}" alt="">`;
@@ -310,8 +436,7 @@ function renderFiles(){
 }
 
 async function openFile(f){
-  // Open the tab first so mobile browsers don't block it as a popup
-  const tab = window.open('about:blank');
+  const tab = window.open('about:blank');   // open first so mobile doesn't block it
   try{
     const { url } = await api('file-url', { path: f.path });
     if (tab) tab.location = url; else window.location = url;
@@ -336,7 +461,9 @@ async function uploadFiles(fileList){
     const f = files[i];
     toast(files.length > 1 ? `Uploading ${i+1} of ${files.length}…` : `Uploading ${f.name}…`, 60000);
     try{
-      const { signedUrl } = await api('upload-url', { member: current.id, filename: f.name });
+      const { signedUrl } = await api('upload-url', {
+        member: current.id, shelf: currentShelf.id, filename: f.name,
+      });
       const put = await fetch(signedUrl, {
         method:'PUT',
         headers:{ 'Content-Type': f.type || 'application/octet-stream' },
@@ -349,12 +476,41 @@ async function uploadFiles(fileList){
       return;
     }
   }
-  toast(files.length > 1 ? `${files.length} files saved ✓` : 'Saved ✓');
+  toast(files.length > 1 ? `${files.length} documents saved ✓` : 'Saved ✓');
   await refresh();
 }
 
-/* Fetch the family photos (signed URLs) only after unlocking, then paint
-   them into the background and the home-screen emblem. Fetched once per session. */
+/* ---------- secret-code prompt (promise-based) ---------- */
+function askCode(){
+  return new Promise((resolve) => {
+    const modal = $('code-modal'), input = $('code-input'), err = $('code-err');
+    err.textContent = ''; input.value = '';
+    modal.classList.remove('hidden');
+    setTimeout(() => input.focus(), 50);
+
+    const close = (val) => {
+      modal.classList.add('hidden');
+      $('code-form').onsubmit = null;
+      $('code-cancel').onclick = null;
+      resolve(val);
+    };
+    $('code-cancel').onclick = () => close(null);
+    $('code-form').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const val = input.value.trim();
+      if (!val) return;
+      err.textContent = 'Checking…';
+      try{
+        await api('check-code', { code: val });
+        close(val);
+      }catch(e){
+        err.textContent = e.locked ? 'Wrong code — try again.' : e.message;
+      }
+    };
+  });
+}
+
+/* ---------- family photos, loaded only after unlock ---------- */
 let assetsLoaded = false;
 async function loadAssets(){
   if (assetsLoaded) return;
@@ -364,13 +520,9 @@ async function loadAssets(){
       document.body.style.setProperty('--photo-url', `url("${bg}")`);
       document.body.classList.add('has-photo');
     }
-    if (emblem){
-      const el = $('emblem');
-      el.src = emblem;
-      el.classList.remove('hidden');
-    }
+    if (emblem){ const el = $('emblem'); el.src = emblem; el.classList.remove('hidden'); }
     assetsLoaded = true;
-  }catch{ /* photos are optional decoration — ignore if unavailable */ }
+  }catch{ /* decoration only — ignore if unavailable */ }
 }
 
 /* ---------- wiring ---------- */
@@ -394,9 +546,8 @@ $('login-form').onsubmit = async (ev) => {
 
 $('logout').onclick = () => {
   localStorage.removeItem('vault-password');
-  password = '';
+  password = ''; privateCode = '';
   $('pw').value = '';
-  // strip the family photos back out so they never linger on the lock screen
   document.body.classList.remove('has-photo');
   document.body.style.removeProperty('--photo-url');
   $('emblem').classList.add('hidden');
@@ -405,7 +556,8 @@ $('logout').onclick = () => {
   show('login');
 };
 
-$('back').onclick = renderHome;
+$('shelves-back').onclick = renderHome;
+$('shelf-back').onclick   = () => openMember(current);
 $('search').oninput = renderFiles;
 $('snap').onclick = () => $('file-cam').click();
 $('add').onclick  = () => $('file-any').click();
