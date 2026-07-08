@@ -36,6 +36,51 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || "";
 const HUNTER_BASE = "https://api.hunter.io/v2";
 
+// Optional: live web search to WIDEN where we look for companies, instead of
+// relying on Claude's memory (which is thin for African / niche / new firms).
+// Serper.dev gives Google results with a generous free tier (~2,500 queries).
+//   supabase secrets set SERPER_API_KEY=your-serper-key
+// If unset, "find" quietly falls back to Claude's own knowledge.
+const SERPER_API_KEY = Deno.env.get("SERPER_API_KEY") || "";
+
+// Directories/marketplaces/socials that clog search results — never treat these
+// as target companies to email.
+const AGGREGATOR_DOMAINS = [
+  "linkedin.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
+  "wikipedia.org", "crunchbase.com", "glassdoor.com", "indeed.com", "youtube.com",
+  "yelp.com", "yellowpages.com", "tripadvisor.com", "medium.com", "reddit.com",
+  "amazon.com", "google.com", "bloomberg.com", "pitchbook.com", "zoominfo.com",
+  "clutch.co", "trustpilot.com", "businesslist.com.ng", "vconnect.com",
+];
+function isAggregator(domain: string): boolean {
+  const d = domain.toLowerCase().replace(/^www\./, "");
+  return AGGREGATOR_DOMAINS.some((a) => d === a || d.endsWith("." + a));
+}
+
+// Run a Google search via Serper and return organic {title, link, snippet}.
+async function serperSearch(query: string, gl?: string): Promise<any[]> {
+  const res = await fetch("https://google.serper.dev/search", {
+    method: "POST",
+    headers: { "X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ q: query, num: 20, ...(gl ? { gl } : {}) }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => ({}));
+  return Array.isArray(data.organic) ? data.organic : [];
+}
+
+// Best-effort map of a typed location to a Google country code, to bias results.
+const GL_BY_COUNTRY: Record<string, string> = {
+  nigeria: "ng", ghana: "gh", kenya: "ke", "south africa": "za", egypt: "eg",
+  tanzania: "tz", uganda: "ug", rwanda: "rw", ethiopia: "et", morocco: "ma",
+  "ivory coast": "ci", "cote d'ivoire": "ci", senegal: "sn", cameroon: "cm",
+};
+function glFor(location: string): string | undefined {
+  const l = location.toLowerCase();
+  for (const [name, gl] of Object.entries(GL_BY_COUNTRY)) if (l.includes(name)) return gl;
+  return undefined;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type",
@@ -273,27 +318,75 @@ Deno.serve(async (req) => {
         return json({ error: "Hunter isn't connected yet — set the HUNTER_API_KEY secret to turn on prospect-finding." }, 400);
       }
       const seg = body.segment || {};
+      const location = (body.location || "").trim();
       // Keep this small: each company is one Hunter lookup, and the free tier
-      // is ~25/month. Default 3, hard cap 5.
-      const count = Math.min(Math.max(Number(body.count) || 3, 1), 5);
-
-      // Stage 1 — Claude proposes real companies that would BUY the segment's product.
+      // is ~25/month. Default 3, hard cap 6.
+      const count = Math.min(Math.max(Number(body.count) || 3, 1), 6);
       const sellerContext = body.seller ? `The product being sold: ${body.seller}. ` : "";
-      const compSystem =
-        "You are a B2B researcher. Given a buyer segment, name real, currently-operating " +
-        "companies that are a strong fit as CUSTOMERS for the product. Use only real companies " +
-        "you are confident exist, with their real primary web domain. Never invent companies or domains.\n" +
-        `Reply with ONLY JSON: {"companies":[{"name": string, "domain": string}]}. Give exactly ${count}.`;
-      const compUser =
-        sellerContext +
-        `Segment: ${seg.name || ""}\nIndustry: ${seg.industry || ""}\n` +
-        `Company size: ${seg.company_size || ""}\nWhy they fit: ${seg.why || ""}\n` +
-        `Target roles: ${(seg.decision_makers || []).join(", ")}`;
 
-      const { parsed, usage } = await claudeJson(compSystem, compUser, 700);
-      const companies = (parsed?.companies || [])
-        .filter((c: any) => c && c.domain)
-        .slice(0, count);
+      let companies: any[] = [];
+      let usage = { input: 0, output: 0 };
+      let source = "knowledge";
+
+      // Stage 1a — if search is configured, WIDEN discovery with live Google
+      // results and let Claude pick real companies out of them. This is what
+      // reaches African / niche / newer firms Claude wouldn't recall from memory.
+      if (SERPER_API_KEY) {
+        const where = location ? ` in ${location}` : "";
+        const query = `${seg.industry || seg.name || "B2B"} companies${where}`;
+        const organic = await serperSearch(query, glFor(location));
+        const results = organic
+          .filter((r: any) => r.link)
+          .map((r: any) => {
+            let dom = "";
+            try { dom = new URL(r.link).hostname.replace(/^www\./, ""); } catch { /* skip */ }
+            return { title: r.title || "", snippet: r.snippet || "", domain: dom };
+          })
+          .filter((r: any) => r.domain && !isAggregator(r.domain));
+
+        if (results.length) {
+          const extractSystem =
+            "You are a B2B researcher. From the SEARCH RESULTS provided, pick the real, " +
+            "currently-operating companies that best fit the buyer segment as CUSTOMERS. " +
+            "Use only companies actually present in the results, with the domain shown for each. " +
+            "Skip directories, marketplaces, blogs, news sites and job boards.\n" +
+            `Reply with ONLY JSON: {"companies":[{"name": string, "domain": string}]}. Up to ${count}, best fit first.`;
+          const extractUser =
+            sellerContext +
+            `Segment: ${seg.name || ""}\nIndustry: ${seg.industry || ""}\n` +
+            `Location focus: ${location || "any"}\nWhy they fit: ${seg.why || ""}\n\n` +
+            "SEARCH RESULTS:\n" +
+            results.slice(0, 20).map((r: any, i: number) =>
+              `${i + 1}. ${r.title} [${r.domain}] — ${r.snippet}`).join("\n");
+          const out = await claudeJson(extractSystem, extractUser, 700);
+          companies = (out.parsed?.companies || []).filter((c: any) => c && c.domain);
+          usage = out.usage;
+          source = "search";
+        }
+      }
+
+      // Stage 1b — fallback (no search key, or search returned nothing usable):
+      // Claude proposes companies from its own knowledge, as before.
+      if (!companies.length) {
+        const where = location ? ` Focus on companies in ${location}.` : "";
+        const compSystem =
+          "You are a B2B researcher. Given a buyer segment, name real, currently-operating " +
+          "companies that are a strong fit as CUSTOMERS for the product. Use only real companies " +
+          "you are confident exist, with their real primary web domain. Never invent companies or domains." +
+          where + "\n" +
+          `Reply with ONLY JSON: {"companies":[{"name": string, "domain": string}]}. Give up to ${count}.`;
+        const compUser =
+          sellerContext +
+          `Segment: ${seg.name || ""}\nIndustry: ${seg.industry || ""}\n` +
+          `Company size: ${seg.company_size || ""}\nWhy they fit: ${seg.why || ""}\n` +
+          `Target roles: ${(seg.decision_makers || []).join(", ")}`;
+        const out = await claudeJson(compSystem, compUser, 700);
+        companies = (out.parsed?.companies || []).filter((c: any) => c && c.domain);
+        usage = out.usage;
+        source = "knowledge";
+      }
+
+      companies = companies.filter((c: any) => !isAggregator(String(c.domain))).slice(0, count);
       if (!companies.length) return json({ error: "couldn't identify target companies for this segment" }, 502);
 
       supabase.from("token_usage").insert({
@@ -345,6 +438,7 @@ Deno.serve(async (req) => {
         people,
         companies: companies.map((c: any) => c.name || c.domain),
         lookups_used: lookupsCounted,
+        source, // "search" (live web) or "knowledge" (Claude's memory)
       });
     }
 

@@ -73,6 +73,14 @@
 
   .hint { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; }
 
+  .region { margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .region label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #5d6976; }
+  .region input {
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    border-radius: 10px; padding: 10px 14px; font-size: 15px; outline: none; text-align: center; min-width: 260px;
+  }
+  .region-note { font-size: 12px; color: var(--muted); }
+
   /* auth panel */
   .auth {
     background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
@@ -255,6 +263,12 @@
       <button class="btn" id="runBtn">Analyze &nbsp;→</button>
     </div>
     <div class="hint">Enter your company's website. The agent reads it and builds your go-to-market plan.</div>
+
+    <div class="region">
+      <label for="regionInput">Where to hunt for leads</label>
+      <input id="regionInput" type="text" value="Africa" placeholder="e.g. Nigeria, Lagos, Kenya, Africa" autocomplete="off" />
+      <span class="region-note">Steers live web search toward this place. Leave blank for anywhere.</span>
+    </div>
 
     <div id="progress" style="display:none">
       <ul class="steps" id="steps">
@@ -475,6 +489,7 @@
     const seg = (lastResult.segments || [])[index];
     if (!seg) return;
     const seller = (lastResult.company || {}).what_they_sell || (lastResult.company || {}).one_liner || '';
+    const location = (el('regionInput')?.value || '').trim();
     const box = el('prospects-' + index);
     btn.disabled = true;
     btn.textContent = 'Finding companies & emails…';
@@ -483,7 +498,7 @@
       const res = await fetch(EDGE_FUNCTION_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
-        body: JSON.stringify({ mode: 'find', segment: seg, seller }),
+        body: JSON.stringify({ mode: 'find', segment: seg, seller, location }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -498,7 +513,8 @@
         btn.disabled = false; btn.innerHTML = 'Find real prospects in this segment &nbsp;→';
         return;
       }
-      let h = `<div class="prospects-total">Searched ${esc(cos)} · ${people.length} contacts · ${data.lookups_used} of your monthly Hunter lookups used</div>`;
+      const via = data.source === 'search' ? 'live web search' : "Claude's knowledge";
+      let h = `<div class="prospects-total">Via ${via} · searched ${esc(cos)} · ${people.length} contacts · ${data.lookups_used} of your monthly Hunter lookups used</div>`;
       people.forEach((p, pi) => {
         const conf = p.confidence != null ? ` · ${p.confidence}% confidence` : '';
         h += `
