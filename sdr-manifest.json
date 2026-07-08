@@ -1,0 +1,16 @@
+{
+  "name": "Lumen SDR — AI Sales Agent",
+  "short_name": "Lumen SDR",
+  "start_url": "./prospector.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#05070a",
+  "theme_color": "#05070a",
+  "description": "24/7 AI agent that researches your market, builds buyer segments, finds decision-makers, and writes outreach — while you sleep.",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

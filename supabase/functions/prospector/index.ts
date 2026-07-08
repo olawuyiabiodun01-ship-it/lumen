@@ -43,6 +43,10 @@ const HUNTER_BASE = "https://api.hunter.io/v2";
 // If unset, "find" quietly falls back to Claude's own knowledge.
 const SERPER_API_KEY = Deno.env.get("SERPER_API_KEY") || "";
 
+// Only this email can invite/remove teammates. Same default + override as
+// lumen-chat, so both apps share one admin.
+const ADMIN_EMAIL = (Deno.env.get("ADMIN_EMAIL") || "olawuyiabiodun01@gmail.com").toLowerCase();
+
 // Directories/marketplaces/socials that clog search results — never treat these
 // as target companies to email.
 const AGGREGATOR_DOMAINS = [
@@ -643,6 +647,34 @@ Deno.serve(async (req) => {
       // Stop everything still pending in the sequence; leave already-sent rows.
       await supabase.from("outreach").update({ status: "replied" })
         .eq("user_email", email).eq("sequence_id", body.sequence_id).in("status", ["draft", "approved", "paused"]);
+      return json({ ok: true });
+    }
+
+    // ---- TEAM ACCESS (admin only) — invite colleagues to the app ----
+    if (mode === "admin_list_users" || mode === "admin_add_user" || mode === "admin_remove_user") {
+      if (email !== ADMIN_EMAIL) return json({ error: "admin only" }, 403);
+
+      if (mode === "admin_list_users") {
+        const { data, error: e } = await supabase
+          .from("approved_users").select("email, added_at").order("added_at", { ascending: false });
+        if (e) return json({ error: e.message }, 500);
+        return json({ ok: true, users: data || [], admin_email: ADMIN_EMAIL });
+      }
+
+      if (mode === "admin_add_user") {
+        const newEmail = (body.email || "").trim().toLowerCase();
+        if (!newEmail.includes("@")) return json({ error: "invalid email" }, 400);
+        const { error: e } = await supabase.from("approved_users").insert({ email: newEmail });
+        if (e && e.code !== "23505") return json({ error: e.message }, 500); // 23505 = already there
+        return json({ ok: true });
+      }
+
+      // admin_remove_user
+      const target = (body.email || "").trim().toLowerCase();
+      if (!target) return json({ error: "invalid email" }, 400);
+      if (target === ADMIN_EMAIL) return json({ error: "can't remove the admin" }, 400);
+      const { error: e } = await supabase.from("approved_users").delete().eq("email", target);
+      if (e) return json({ error: e.message }, 500);
       return json({ ok: true });
     }
 

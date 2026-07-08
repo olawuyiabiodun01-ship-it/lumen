@@ -4,6 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Lumen SDR — AI agents that qualify clients while you sleep</title>
+<meta name="description" content="24/7 AI agent that researches your market, builds buyer segments, finds decision-makers, and writes outreach — while you sleep." />
+<!-- PWA: installable app -->
+<link rel="manifest" href="sdr-manifest.json" />
+<meta name="theme-color" content="#05070a" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Lumen SDR" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
@@ -41,6 +49,10 @@
   .who button {
     background: none; border: 1px solid var(--line); color: var(--muted);
     padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  .install-btn {
+    background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent);
+    padding: 7px 13px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap;
   }
 
   h1 {
@@ -233,7 +245,10 @@
 <div class="wrap">
   <header>
     <div class="logo"><span class="mark"></span> Lumen SDR</div>
-    <div class="who" id="who"></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <button id="installBtn" class="install-btn" style="display:none">⤓ Install app</button>
+      <div class="who" id="who"></div>
+    </div>
   </header>
 
   <h1>24/7 AI agents that <span class="g">qualify</span><br>clients while you sleep</h1>
@@ -254,6 +269,7 @@
   <div id="tabs" class="tabs" style="display:none">
     <button class="tab active" data-view="find">Find prospects</button>
     <button class="tab" data-view="outbox">Outbox <span id="outboxCount"></span></button>
+    <button class="tab" data-view="team" id="teamTab" style="display:none">Team</button>
   </div>
 
   <!-- Signed-in: the domain search -->
@@ -301,6 +317,22 @@
 
     <div id="outboxList"></div>
   </div>
+
+  <!-- Admin only: invite colleagues -->
+  <div id="teamPanel" style="display:none">
+    <div class="settings" style="padding:18px">
+      <div style="font-weight:600;font-size:15px;margin-bottom:6px">Invite a colleague</div>
+      <div class="hint" style="text-align:left;margin:0 0 12px">
+        Add their email, then send them the app link. They sign in with a one-time email link — no password.
+      </div>
+      <div class="searchbox" style="box-shadow:none">
+        <input id="inviteEmail" type="email" placeholder="colleague@company.com" autocomplete="off" />
+        <button class="btn" id="inviteBtn">Add</button>
+      </div>
+      <div class="hint" id="inviteHint" style="text-align:left"></div>
+    </div>
+    <div id="teamList"></div>
+  </div>
 </div>
 
 <script>
@@ -322,6 +354,7 @@
       el('who').innerHTML = esc(session.user.email) + ' &nbsp;<button id="logoutBtn">Sign out</button>';
       el('logoutBtn').onclick = async () => { await sb.auth.signOut(); location.reload(); };
       refreshOutboxCount();
+      checkAdmin();
     } else {
       el('authPanel').style.display = 'block';
       el('tabs').style.display = 'none';
@@ -335,8 +368,10 @@
   function showView(view) {
     el('appPanel').style.display = view === 'find' ? 'block' : 'none';
     el('outboxPanel').style.display = view === 'outbox' ? 'block' : 'none';
+    el('teamPanel').style.display = view === 'team' ? 'block' : 'none';
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
     if (view === 'outbox') { loadSettings(); renderOutbox(); }
+    if (view === 'team') renderTeam();
   }
   document.querySelectorAll('.tab').forEach(t => { t.onclick = () => showView(t.dataset.view); });
 
@@ -753,6 +788,83 @@
       wire('.act-replied', { mode: 'mark_replied', sequence_id: seq }, 'Stop all pending emails to this prospect?');
     });
   }
+
+  // ---- PWA: register service worker so the app is installable ----
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+
+  // ---- PWA: "Install app" button appears when the browser allows it ----
+  let deferredInstall = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+    const btn = el('installBtn');
+    if (btn) {
+      btn.style.display = 'inline-block';
+      btn.onclick = async () => {
+        btn.style.display = 'none';
+        deferredInstall.prompt();
+        await deferredInstall.userChoice;
+        deferredInstall = null;
+      };
+    }
+  });
+
+  // ---- Team access (admin only) ----
+  let isAdmin = false;
+  async function checkAdmin() {
+    try {
+      await api({ mode: 'admin_list_users' });
+      isAdmin = true;
+      el('teamTab').style.display = 'inline-block';
+    } catch { isAdmin = false; el('teamTab').style.display = 'none'; }
+  }
+
+  async function renderTeam() {
+    const box = el('teamList');
+    box.innerHTML = '<div class="ob-empty">Loading…</div>';
+    let data;
+    try { data = await api({ mode: 'admin_list_users' }); }
+    catch (e) { box.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+    const users = data.users || [];
+    let h = `<div class="prospects-total" style="margin:6px 0 10px">${users.length} ${users.length === 1 ? 'person has' : 'people have'} access</div>`;
+    users.forEach(u => {
+      const isAdminRow = u.email === data.admin_email;
+      h += `
+        <div class="prospect" style="border-top:1px solid var(--line)">
+          <div class="pinfo">
+            <div class="pname">${esc(u.email)} ${isAdminRow ? '<span class="badge sent">admin</span>' : ''}</div>
+          </div>
+          ${isAdminRow ? '' : `<button class="reveal-btn team-remove" data-email="${esc(u.email)}">Remove</button>`}
+        </div>`;
+    });
+    box.innerHTML = h;
+    box.querySelectorAll('.team-remove').forEach(b => {
+      b.onclick = async () => {
+        if (!confirm('Remove ' + b.dataset.email + "'s access?")) return;
+        b.disabled = true;
+        try { await api({ mode: 'admin_remove_user', email: b.dataset.email }); renderTeam(); }
+        catch (e) { b.disabled = false; b.title = e.message; }
+      };
+    });
+  }
+
+  el('inviteBtn').onclick = async () => {
+    const email = el('inviteEmail').value.trim();
+    if (!email.includes('@')) { el('inviteHint').textContent = 'Enter a valid email.'; return; }
+    el('inviteBtn').disabled = true; el('inviteHint').textContent = 'Adding…';
+    try {
+      await api({ mode: 'admin_add_user', email });
+      el('inviteEmail').value = '';
+      el('inviteHint').textContent = `${email} can now sign in. Send them the app link.`;
+      renderTeam();
+    } catch (e) {
+      el('inviteHint').textContent = 'Error: ' + e.message;
+    } finally {
+      el('inviteBtn').disabled = false;
+    }
+  };
 
   sb.auth.onAuthStateChange(() => refreshAuth());
   refreshAuth();
