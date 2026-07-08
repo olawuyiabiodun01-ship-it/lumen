@@ -22,12 +22,12 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// Stage 2 — real prospect data. Set with:
-//   supabase secrets set APOLLO_API_KEY=your-apollo-master-key
-// Empty is fine: the "find" / "unlock" modes just report they're not configured
-// yet, and Stage 1 (analyze/write) keeps working without it.
-const APOLLO_API_KEY = Deno.env.get("APOLLO_API_KEY") || "";
-const APOLLO_BASE = "https://api.apollo.io/api/v1";
+// Stage 2 — real prospect data via Hunter.io (works on Hunter's free tier).
+// Set with:  supabase secrets set HUNTER_API_KEY=your-hunter-key
+// Empty is fine: the "find" mode just reports it's not configured yet, and
+// Stage 1 (analyze/write) keeps working without it.
+const HUNTER_API_KEY = Deno.env.get("HUNTER_API_KEY") || "";
+const HUNTER_BASE = "https://api.hunter.io/v2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,18 +72,6 @@ function normaliseUrl(input: string): string | null {
   } catch {
     return null;
   }
-}
-
-// Turn a human company-size string ("50–500 employees", "1,000+") into the
-// "min,max" range format Apollo expects. Returns null if no numbers are found.
-function employeeRange(sizeStr: string): string | null {
-  const nums = (sizeStr || "").replace(/,/g, "").match(/\d+/g);
-  if (!nums || !nums.length) return null;
-  if (nums.length === 1) {
-    // A single number with a "+" means "that many or more".
-    return /\+/.test(sizeStr) ? `${nums[0]},100000` : `${nums[0]},${nums[0]}`;
-  }
-  return `${nums[0]},${nums[1]}`;
 }
 
 // Ask Claude for a JSON object and parse it defensively. Returns null on any
@@ -242,85 +230,89 @@ Deno.serve(async (req) => {
       return json({ ok: true, email: parsed });
     }
 
-    // ---- FIND MODE (Stage 2) ----
-    // One buyer segment in → real people (name, title, company, LinkedIn) out.
-    // Uses Apollo's search endpoint, which is FREE and returns NO emails.
-    // Emails are unlocked separately, per-person, via the "unlock" mode below.
+    // ---- FIND MODE (Stage 2, Hunter.io free tier) ----
+    // Two stages: (1) Claude names real companies that fit the segment, then
+    // (2) Hunter's Domain Search returns real decision-makers WITH verified
+    // emails at each. Hunter only counts a search when it returns ≥1 result,
+    // so empty companies don't burn quota.
     if (mode === "find") {
-      if (!APOLLO_API_KEY) {
-        return json({ error: "Apollo isn't connected yet — set the APOLLO_API_KEY secret to turn on prospect-finding." }, 400);
+      if (!HUNTER_API_KEY) {
+        return json({ error: "Hunter isn't connected yet — set the HUNTER_API_KEY secret to turn on prospect-finding." }, 400);
       }
       const seg = body.segment || {};
-      const titles = (seg.decision_makers || []).filter(Boolean).slice(0, 6);
-      if (!titles.length) return json({ error: "this segment has no target job titles" }, 400);
+      // Keep this small: each company is one Hunter lookup, and the free tier
+      // is ~25/month. Default 3, hard cap 5.
+      const count = Math.min(Math.max(Number(body.count) || 3, 1), 5);
 
-      const payload: Record<string, unknown> = {
-        person_titles: titles,
-        page: 1,
-        per_page: Math.min(Math.max(Number(body.per_page) || 10, 1), 25),
-      };
-      if (seg.industry) payload.q_keywords = seg.industry;
-      const range = employeeRange(seg.company_size || "");
-      if (range) payload.organization_num_employees_ranges = [range];
+      // Stage 1 — Claude proposes real companies that would BUY the segment's product.
+      const sellerContext = body.seller ? `The product being sold: ${body.seller}. ` : "";
+      const compSystem =
+        "You are a B2B researcher. Given a buyer segment, name real, currently-operating " +
+        "companies that are a strong fit as CUSTOMERS for the product. Use only real companies " +
+        "you are confident exist, with their real primary web domain. Never invent companies or domains.\n" +
+        `Reply with ONLY JSON: {"companies":[{"name": string, "domain": string}]}. Give exactly ${count}.`;
+      const compUser =
+        sellerContext +
+        `Segment: ${seg.name || ""}\nIndustry: ${seg.industry || ""}\n` +
+        `Company size: ${seg.company_size || ""}\nWhy they fit: ${seg.why || ""}\n` +
+        `Target roles: ${(seg.decision_makers || []).join(", ")}`;
 
-      const apolloRes = await fetch(`${APOLLO_BASE}/mixed_people/api_search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-          "X-Api-Key": APOLLO_API_KEY,
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await apolloRes.json().catch(() => ({}));
-      if (!apolloRes.ok) {
-        const msg = data?.error || data?.message || `HTTP ${apolloRes.status}`;
-        return json({ error: "Apollo search failed: " + msg }, 502);
+      const { parsed, usage } = await claudeJson(compSystem, compUser, 700);
+      const companies = (parsed?.companies || [])
+        .filter((c: any) => c && c.domain)
+        .slice(0, count);
+      if (!companies.length) return json({ error: "couldn't identify target companies for this segment" }, 502);
+
+      supabase.from("token_usage").insert({
+        user_email: email, input_tokens: usage.input, output_tokens: usage.output,
+      }).then(() => {}, () => {});
+
+      // Stage 2 — Hunter Domain Search per company. Sequential to stay gentle on
+      // the free rate limit; failures on one company don't sink the others.
+      const people: any[] = [];
+      let lookupsCounted = 0;
+      for (const co of companies) {
+        const domain = String(co.domain).replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
+        if (!domain) continue;
+        try {
+          const url = `${HUNTER_BASE}/domain-search?domain=${encodeURIComponent(domain)}&type=personal&limit=10`;
+          const hRes = await fetch(url, { headers: { "X-API-KEY": HUNTER_API_KEY } });
+          const hData = await hRes.json().catch(() => ({}));
+          if (!hRes.ok) {
+            // Surface auth/quota errors clearly instead of silently returning nothing.
+            const detail = hData?.errors?.[0]?.details || `HTTP ${hRes.status}`;
+            if (hRes.status === 401 || hRes.status === 429) {
+              return json({ error: "Hunter: " + detail }, 502);
+            }
+            continue;
+          }
+          const emails = hData?.data?.emails || [];
+          if (emails.length) lookupsCounted++;
+          // Prefer decision-makers: senior/executive first, then by confidence.
+          const rank = (e: any) => (e.seniority === "executive" ? 0 : e.seniority === "senior" ? 1 : 2);
+          emails
+            .filter((e: any) => e.value)
+            .sort((a: any, b: any) => rank(a) - rank(b) || (b.confidence || 0) - (a.confidence || 0))
+            .slice(0, 5)
+            .forEach((e: any) => {
+              people.push({
+                name: [e.first_name, e.last_name].filter(Boolean).join(" ") || "(name unknown)",
+                title: e.position || "",
+                company: co.name || domain,
+                email: e.value,
+                linkedin: e.linkedin || "",
+                confidence: e.confidence ?? null,
+              });
+            });
+        } catch (_e) { /* skip this company, keep going */ }
       }
 
-      const people = (data.people || []).map((p: any) => ({
-        id: p.id,
-        name: p.name || [p.first_name, p.last_name].filter(Boolean).join(" "),
-        title: p.title || "",
-        company: p.organization?.name || "",
-        domain: p.organization?.primary_domain || p.organization?.website_url || "",
-        linkedin: p.linkedin_url || "",
-      }));
-      const total = data.pagination?.total_entries ?? people.length;
-      return json({ ok: true, people, total });
-    }
-
-    // ---- UNLOCK MODE (Stage 2, costs one Apollo credit) ----
-    // Reveal one prospect's verified email. Only ever runs on an explicit
-    // per-person action from the UI, so credits are never spent by surprise.
-    if (mode === "unlock") {
-      if (!APOLLO_API_KEY) return json({ error: "Apollo isn't connected yet." }, 400);
-      const id = body.id;
-      if (!id) return json({ error: "missing prospect id" }, 400);
-
-      const apolloRes = await fetch(`${APOLLO_BASE}/people/match`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-          "X-Api-Key": APOLLO_API_KEY,
-        },
-        body: JSON.stringify({ id, reveal_personal_emails: true }),
+      return json({
+        ok: true,
+        people,
+        companies: companies.map((c: any) => c.name || c.domain),
+        lookups_used: lookupsCounted,
       });
-      const data = await apolloRes.json().catch(() => ({}));
-      if (!apolloRes.ok) {
-        const msg = data?.error || data?.message || `HTTP ${apolloRes.status}`;
-        return json({ error: "Apollo enrichment failed: " + msg }, 502);
-      }
-
-      const person = data.person || {};
-      const email =
-        person.email ||
-        (person.personal_emails && person.personal_emails[0]) ||
-        (person.contact_emails && person.contact_emails[0]?.email) ||
-        "";
-      const phone = (person.phone_numbers && person.phone_numbers[0]?.sanitized_number) || "";
-      return json({ ok: true, email, phone });
     }
 
     return json({ error: "unknown mode" }, 400);

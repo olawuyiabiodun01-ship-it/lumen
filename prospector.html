@@ -373,19 +373,20 @@
     });
   }
 
-  // Stage 2: run one segment through Apollo and list the people it finds.
+  // Stage 2: find real people (with verified emails) for one segment via Hunter.
   async function findProspects(index, btn) {
     const seg = (lastResult.segments || [])[index];
     if (!seg) return;
+    const seller = (lastResult.company || {}).what_they_sell || (lastResult.company || {}).one_liner || '';
     const box = el('prospects-' + index);
     btn.disabled = true;
-    btn.textContent = 'Searching Apollo…';
+    btn.textContent = 'Finding companies & emails…';
     try {
       const { data: { session } } = await sb.auth.getSession();
       const res = await fetch(EDGE_FUNCTION_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
-        body: JSON.stringify({ mode: 'find', segment: seg }),
+        body: JSON.stringify({ mode: 'find', segment: seg, seller }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -394,58 +395,35 @@
         return;
       }
       const people = data.people || [];
+      const cos = (data.companies || []).join(', ');
       if (!people.length) {
-        box.innerHTML = `<div class="prospects-total">No matching people found — try broadening the segment.</div>`;
+        box.innerHTML = `<div class="prospects-total">Searched ${esc(cos)} — no public emails found. Try again to sample different companies.</div>`;
         btn.disabled = false; btn.innerHTML = 'Find real prospects in this segment &nbsp;→';
         return;
       }
-      let h = `<div class="prospects-total">${data.total.toLocaleString()} people match · showing ${people.length}</div>`;
+      let h = `<div class="prospects-total">Searched ${esc(cos)} · ${people.length} contacts · ${data.lookups_used} of your monthly Hunter lookups used</div>`;
       people.forEach(p => {
+        const conf = p.confidence != null ? ` · ${p.confidence}% confidence` : '';
         h += `
           <div class="prospect">
             <div class="pinfo">
               <div class="pname">${esc(p.name || '—')}</div>
               <div class="prole">${esc(p.title || '')}${p.company ? ' · ' + esc(p.company) : ''}
                 ${p.linkedin ? ` · <a class="li" href="${esc(p.linkedin)}" target="_blank" rel="noopener">LinkedIn</a>` : ''}</div>
+              <span class="email-out" data-email="${esc(p.email)}" title="Click to copy">${esc(p.email)}</span><span class="prole">${esc(conf)}</span>
             </div>
-            <button class="reveal-btn" data-id="${esc(p.id)}">Reveal email</button>
           </div>`;
       });
       box.innerHTML = h;
-      box.querySelectorAll('.reveal-btn').forEach(rb => { rb.onclick = () => revealEmail(rb); });
-      btn.textContent = 'Prospects found ✓';
+      box.querySelectorAll('.email-out').forEach(s => {
+        s.style.cursor = 'pointer';
+        s.onclick = () => { navigator.clipboard.writeText(s.dataset.email); const t = s.textContent; s.textContent = t + ' ✓'; setTimeout(() => s.textContent = t, 1200); };
+      });
+      btn.textContent = 'Prospects found ✓ — run again for more';
+      btn.disabled = false;
     } catch (e) {
       box.innerHTML = `<div class="err" style="text-align:left;margin-top:10px">Network error: ${esc(e.message)}</div>`;
       btn.disabled = false; btn.innerHTML = 'Find real prospects in this segment &nbsp;→';
-    }
-  }
-
-  // Stage 2: unlock one prospect's email. Costs one Apollo credit, so it only
-  // ever fires on this explicit click.
-  async function revealEmail(btn) {
-    const id = btn.dataset.id;
-    btn.disabled = true;
-    btn.textContent = 'Revealing…';
-    try {
-      const { data: { session } } = await sb.auth.getSession();
-      const res = await fetch(EDGE_FUNCTION_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
-        body: JSON.stringify({ mode: 'unlock', id }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) { btn.disabled = false; btn.textContent = 'Retry'; btn.title = data.error || ''; return; }
-      const out = document.createElement('span');
-      out.className = 'email-out';
-      out.textContent = data.email || 'no email on file';
-      if (data.email) {
-        out.style.cursor = 'pointer';
-        out.title = 'Click to copy';
-        out.onclick = () => { navigator.clipboard.writeText(data.email); out.textContent = data.email + ' ✓'; };
-      }
-      btn.replaceWith(out);
-    } catch (e) {
-      btn.disabled = false; btn.textContent = 'Retry'; btn.title = e.message;
     }
   }
 
