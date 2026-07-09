@@ -1,8 +1,10 @@
 # ForgeProspect — by JayQue
 
-**Turn your website into a qualified pipeline.**
+**Understand your market before you contact it.**
 
-ForgeProspect studies your business, defines the buyers most likely to convert, finds real decision-makers with verified emails, drafts tailored outreach, and sends it on a schedule with follow-ups — with **you reviewing every step** before anything goes out.
+ForgeProspect studies your business and identifies the organizations you can *genuinely help* — not everyone, the right ones. It builds decision profiles, prepares an intelligence brief on each target, finds real decision-makers with verified emails, drafts courteous outreach, and sends it on a schedule with follow-ups — with **you reviewing every step** before anything goes out.
+
+Its philosophy is **fit over conversion**: the goal isn't to close everyone, it's to find the organizations whose real problems you're well-placed to solve.
 
 It's an installable web app (PWA), invite-only, running on your own Supabase project and API keys.
 
@@ -10,12 +12,13 @@ It's an installable web app (PWA), invite-only, running on your own Supabase pro
 
 ## What it does
 
-ForgeProspect runs a four-stage outbound pipeline. Each stage is reviewable, and nothing is sent without your explicit approval.
+ForgeProspect runs a reviewable outbound pipeline. Nothing is sent without your explicit approval.
 
-1. **Analyze** — enter your company's website. It reads the site and builds a company profile plus 3–4 best-fit **buyer segments**, each with target industries, company sizes, decision-maker titles, pain points, and buying signals.
-2. **Find** — for each segment it discovers real companies (via live web search, steerable by region), then finds decision-makers with **verified emails** through Hunter.io. If a company isn't in Hunter, it falls back to scraping the company's own site for a published contact address.
-3. **Write** — drafts a warm, courteous, personalized email for each prospect that opens with a genuine pleasantry and invites them to visit your website.
-4. **Send & follow up** — add prospects to your **Outbox**, approve them, and the scheduler sends via Resend and runs automatic follow-ups (+3 and +7 days). Replies and unsubscribes stop the sequence.
+1. **Analyze** — enter your company's website. It reads the site and builds a company profile plus 3–4 **decision profiles**: distinct types of organization you can genuinely help, each with target industries, company sizes, decision-maker roles, the challenges you're placed to solve, and good-fit signals.
+2. **Find** — for each profile it discovers real companies (via live web search, steerable by region), then finds decision-makers with **verified emails** through Hunter.io. If a company isn't in Hunter, it falls back to scraping the company's own site for a published contact address.
+3. **Understand** — for any target, generate an **Executive Intelligence Brief** *before* writing: organization summary, why they match you, estimated digital maturity, likely operational challenges, likely AI concerns, decision-makers, conversation starters, and a recommended next step. Every outreach begins from understanding.
+4. **Write** — drafts a warm, courteous, personalized email that opens with a genuine pleasantry and invites the recipient to visit your website.
+5. **Send & follow up** — add prospects to your **Outbox**, approve them, and the scheduler sends via Resend and runs automatic follow-ups (+3 and +7 days). Replies and unsubscribes stop the sequence.
 
 ### Highlights
 
@@ -79,7 +82,11 @@ supabase/
     └── outreach-cron/index.ts         → the scheduled sender
 ```
 
-The `prospector` function handles every interactive action via a `mode` field: `analyze`, `write`, `find`, `queue`, `outbox`, `approve`, `pause`, `resume`, `mark_replied`, `settings_get/save`, `test_send`, and admin `admin_list_users/add_user/remove_user`, plus a public `?u=<token>` unsubscribe route.
+The `prospector` function handles every interactive action via a `mode` field: `analyze`, `brief`, `write`, `find`, `queue`, `outbox`, `approve`, `pause`, `resume`, `mark_replied`, `settings_get/save`, `test_send`, and admin `admin_list_users/add_user/remove_user`, plus a public `?u=<token>` unsubscribe route.
+
+### Roadmap — the Knowledge Engine
+
+The Executive Intelligence Brief produces explicit **predictions** (estimated maturity, likely challenges, likely concerns). The intended next step is a feedback loop with **ForgeScale**: as real engagements confirm or disprove those predictions, prediction accuracy improves over time — turning accumulated outcomes into JayQue's durable competitive advantage. The brief's structured output is designed to feed that loop.
 
 ---
 

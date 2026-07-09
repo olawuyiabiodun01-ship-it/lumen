@@ -303,29 +303,33 @@ Deno.serve(async (req) => {
 
       const host = new URL(url).hostname.replace(/^www\./, "");
       const system =
-        "You are a B2B go-to-market strategist. Given a company's website text, you infer " +
-        "what they sell, who buys it, and how to reach those buyers. Base everything on the " +
-        "provided text; where the text is thin, make reasonable, clearly-plausible inferences " +
+        "You are a B2B research strategist. Given a company's website text, you infer what they " +
+        "do and identify the types of organizations they can GENUINELY HELP — a question of fit, " +
+        "not of who is easiest to sell to. The goal is to find organizations whose real problems " +
+        "this company is well-placed to solve, even if that means fewer of them. Base everything " +
+        "on the provided text; where it is thin, make reasonable, clearly-plausible inferences " +
         "from the domain and industry — never invent specific named customers or fake statistics.\n\n" +
+        "Each result is a 'decision profile' — a distinct type of organization and the people who " +
+        "decide there.\n\n" +
         "Reply with ONLY a JSON object, no prose, no markdown, in exactly this shape:\n" +
         "{\n" +
         '  "company": {"name": string, "one_liner": string, "what_they_sell": string, "category": string},\n' +
         '  "segments": [\n' +
         "    {\n" +
-        '      "name": string,                     // short label, e.g. "Mid-market SaaS RevOps"\n' +
-        '      "why": string,                       // 1 sentence: why this segment needs the product\n' +
+        '      "name": string,                     // short label for the decision profile, e.g. "Mid-market SaaS RevOps"\n' +
+        '      "why": string,                       // 1 sentence: why this is a genuine fit — a real problem you can truly help them solve\n' +
         '      "industry": string,\n' +
         '      "company_size": string,              // e.g. "50–500 employees"\n' +
-        '      "decision_makers": [string],         // 2–4 job titles to target\n' +
-        '      "pain_points": [string],             // 2–3 concrete pains this product solves\n' +
-        '      "signals": [string],                 // 1–3 buying signals to look for (hiring, funding, tech used)\n' +
-        '      "sample_email": {"subject": string, "body": string}  // a warm, courteous, sendable outreach email, personalised to the segment, ~90–110 words\n' +
+        '      "decision_makers": [string],         // 2–4 job titles who decide here\n' +
+        '      "pain_points": [string],             // 2–3 concrete challenges you are well-placed to solve\n' +
+        '      "signals": [string],                 // 1–3 signals that suggest a good-fit moment (hiring, funding, tech used)\n' +
+        '      "sample_email": {"subject": string, "body": string}  // a warm, courteous, sendable outreach email, personalised to the profile, ~90–110 words\n' +
         "    }\n" +
         "  ]\n" +
         "}\n" +
-        "Produce 3–4 segments, ordered best-fit first. Each email must: open with a genuine, " +
+        "Produce 3–4 decision profiles, ordered best-fit first. Each email must: open with a genuine, " +
         "courteous greeting and a brief pleasantry; keep a polite, professional, human tone (never " +
-        "abrupt, pushy or salesy); be specific to the segment's needs; and warmly invite the reader " +
+        "abrupt, pushy or salesy); be specific to that profile's needs; and warmly invite the reader " +
         `to learn more by visiting the sender's website (${host}), naming the URL. Close with a polite, ` +
         "friendly sign-off. Avoid empty filler and no placeholders like [Company].";
 
@@ -381,6 +385,69 @@ Deno.serve(async (req) => {
       }).then(() => {}, () => {});
 
       return json({ ok: true, email: parsed });
+    }
+
+    // ---- BRIEF MODE — Executive Intelligence Brief ----
+    // Produced BEFORE any email, so every outreach starts from understanding.
+    // Fetches the target organization's site for grounding, then Claude returns
+    // a structured brief: who they are, why they're a genuine fit, estimated
+    // maturity, likely challenges/AI concerns, decision-makers, conversation
+    // starters, and a recommended next step. These are explicit PREDICTIONS —
+    // the raw material a future feedback loop (ForgeScale) can confirm or correct.
+    if (mode === "brief") {
+      const p = body.prospect || {};
+      const seller = body.seller || "";
+      const profile = body.segment || {};
+      const company = (p.company || "").trim();
+      const domain = String(p.domain || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
+
+      // Ground the brief in the target's own website when we have a domain.
+      let siteText = "";
+      if (domain) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          const r = await fetch(`https://${domain}`, {
+            signal: controller.signal,
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; ForgeProspect/1.0)" },
+          });
+          clearTimeout(timer);
+          if (r.ok) siteText = htmlToText(await r.text()).slice(0, 6000);
+        } catch (_e) { /* proceed without site text */ }
+      }
+
+      const system =
+        "You are a senior B2B research analyst preparing an Executive Intelligence Brief on a " +
+        "TARGET organization, so a thoughtful first outreach can begin from genuine understanding. " +
+        "Judge FIT honestly — whether the sender can truly help this organization — and say so " +
+        "plainly if the fit is weak. Everything about the target's maturity, challenges and concerns " +
+        "is an ESTIMATE; frame it as such and never fabricate specific facts, names, or numbers.\n\n" +
+        "Reply with ONLY JSON in exactly this shape:\n" +
+        "{\n" +
+        '  "organization_summary": string,          // 2–3 sentences on who they are and what they do\n' +
+        '  "why_match": string,                       // why (or why not) the sender is a genuine fit to help them\n' +
+        '  "digital_maturity": string,                // an estimate + one line of reasoning, e.g. "Developing — modern site, limited automation"\n' +
+        '  "operational_challenges": [string],        // 2–4 likely operational challenges\n' +
+        '  "ai_concerns": [string],                   // 2–3 concerns this org would likely have about adopting AI\n' +
+        '  "decision_makers": [string],               // 2–4 roles who would decide\n' +
+        '  "conversation_starters": [string],         // 2–3 specific, respectful openers grounded in the above\n' +
+        '  "recommended_next_step": string            // the single best next action\n' +
+        "}";
+      const user =
+        `The sender (who we represent): ${seller || "(a B2B services company)"}\n` +
+        `Decision profile: ${profile.name || ""} — ${profile.why || ""}\n` +
+        `Target organization: ${company || domain || "unknown"}${domain ? ` (${domain})` : ""}\n` +
+        (p.name ? `A known contact there: ${p.name}${p.title ? `, ${p.title}` : ""}\n` : "") +
+        (siteText ? `\nTarget website text:\n${siteText}` : `\n(No website text available — reason from the name and industry.)`);
+
+      const { parsed, usage } = await claudeJson(system, user, 1600);
+      if (!parsed) return json({ error: "couldn't generate the brief — try again" }, 502);
+
+      supabase.from("token_usage").insert({
+        user_email: email, input_tokens: usage.input, output_tokens: usage.output,
+      }).then(() => {}, () => {});
+
+      return json({ ok: true, brief: parsed, company: company || domain });
     }
 
     // ---- FIND MODE (Stage 2, Hunter.io free tier) ----
@@ -505,6 +572,7 @@ Deno.serve(async (req) => {
                   linkedin: e.linkedin || "",
                   confidence: e.confidence ?? null,
                   via: "hunter",
+                  domain,
                 });
               });
           }
@@ -514,7 +582,7 @@ Deno.serve(async (req) => {
         // company's own site for a published contact address. Costs no quota.
         if (!gotFromHunter) {
           const scraped = await scrapeCompanyEmails(domain);
-          scraped.forEach((s) => { people.push({ ...s, company: co.name || domain }); scrapedCount++; });
+          scraped.forEach((s) => { people.push({ ...s, company: co.name || domain, domain }); scrapedCount++; });
         }
       }
 
