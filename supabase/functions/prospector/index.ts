@@ -47,6 +47,10 @@ const SERPER_API_KEY = Deno.env.get("SERPER_API_KEY") || "";
 // lumen-chat, so both apps share one admin.
 const ADMIN_EMAIL = (Deno.env.get("ADMIN_EMAIL") || "olawuyiabiodun01@gmail.com").toLowerCase();
 
+// Same Resend key the outreach-cron uses — here it powers a one-click
+// "send test email to me" so you can verify sending without the scheduler.
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
+
 // Directories/marketplaces/socials that clog search results — never treat these
 // as target companies to email.
 const AGGREGATOR_DOMAINS = [
@@ -540,6 +544,40 @@ Deno.serve(async (req) => {
       const { error: upErr } = await supabase.from("sender_settings").upsert(row, { onConflict: "user_email" });
       if (upErr) return json({ error: upErr.message }, 500);
       return json({ ok: true });
+    }
+
+    // ---- TEST SEND: prove sending works, straight through Resend ----
+    // Bypasses the queue + cron entirely and surfaces Resend's exact error, so
+    // you can tell a domain/key problem from a scheduler problem in one click.
+    if (mode === "test_send") {
+      if (!RESEND_API_KEY) {
+        return json({ error: "RESEND_API_KEY isn't set on the server. Run `supabase secrets set RESEND_API_KEY=re_...` then redeploy prospector." }, 400);
+      }
+      const { data: s } = await supabase.from("sender_settings").select("*").eq("user_email", email).maybeSingle();
+      if (!s || !s.from_email) return json({ error: "Set your From email in Sending identity and Save first." }, 400);
+
+      const to = ((body.to || email) as string).trim().toLowerCase();
+      const fromHeader = s.from_name ? `${s.from_name} <${s.from_email}>` : s.from_email;
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: fromHeader,
+          to: [to],
+          reply_to: s.reply_to || s.from_email,
+          subject: "Lumen SDR — test email ✓",
+          html:
+            `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#1a1a1a;line-height:1.55">` +
+            `<p>This is a test from your Lumen SDR setup.</p>` +
+            `<p>If you're reading this, <b>sending works</b>. Real outreach will go out from <b>${s.from_email}</b>, ` +
+            `and replies will reach <b>${s.reply_to || s.from_email}</b>.</p></div>`,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return json({ error: "Resend rejected it: " + (data?.message || data?.name || `HTTP ${res.status}`) }, 502);
+      }
+      return json({ ok: true, to, id: data.id || null });
     }
 
     // ---- QUEUE: add prospects as DRAFTS (never sends anything) ----

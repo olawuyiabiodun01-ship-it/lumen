@@ -318,7 +318,10 @@
         <label>Signature<textarea id="s_signature" rows="2" placeholder="Jane Doe — Founder, Acme"></textarea></label>
         <label>Physical address <span class="req">(required by anti-spam law, shown in footer)</span><textarea id="s_physical_address" rows="2" placeholder="Acme Inc, 123 Main St, City, Country"></textarea></label>
         <label>Daily send cap<input id="s_daily_cap" type="number" min="1" max="500" value="50"></label>
-        <button class="btn" id="saveSettingsBtn">Save sending settings</button>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button class="btn" id="saveSettingsBtn">Save sending settings</button>
+          <button class="btn" id="testSendBtn" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">Send test email to me</button>
+        </div>
         <span class="hint" id="settingsHint"></span>
       </div>
     </details>
@@ -764,6 +767,19 @@
       el('settingsHint').textContent = 'Error: ' + e.message;
     } finally {
       el('saveSettingsBtn').disabled = false;
+    }
+  };
+
+  el('testSendBtn').onclick = async () => {
+    el('testSendBtn').disabled = true;
+    el('settingsHint').textContent = 'Sending a test email…';
+    try {
+      const r = await api({ mode: 'test_send' });
+      el('settingsHint').textContent = `Test email sent to ${r.to} ✓ — check your inbox (and spam folder).`;
+    } catch (e) {
+      el('settingsHint').textContent = 'Test failed: ' + e.message;
+    } finally {
+      el('testSendBtn').disabled = false;
     }
   };
 
