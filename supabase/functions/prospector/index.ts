@@ -319,8 +319,10 @@ Deno.serve(async (req) => {
         "    }\n" +
         "  ]\n" +
         "}\n" +
-        "Produce 3–4 segments, ordered best-fit first. Emails must be specific and human, " +
-        "no 'I hope this finds you well', no placeholders like [Company].";
+        "Produce 3–4 segments, ordered best-fit first. Emails must open with a brief, genuine, " +
+        "courteous greeting (by first name if one is given, otherwise a warm general greeting) " +
+        "before making the point — polite, not abrupt or salesy. Avoid empty filler like " +
+        "'I hope this finds you well', and no placeholders like [Company].";
 
       const user =
         `Company website: ${host}\n\n` +
@@ -347,8 +349,10 @@ Deno.serve(async (req) => {
       const p = body.prospect || {};
       const context = body.context || "";
       const system =
-        "You write short, sharp, human B2B cold emails that get replies. No fluff, no " +
-        "'I hope this finds you well', no fake personalisation. 90 words max. " +
+        "You write short, warm, human B2B cold emails that get replies. Open with a brief, " +
+        "genuine, courteous greeting — by first name if one is given, otherwise a warm general " +
+        "greeting — before making the point. Be polite throughout, never abrupt. Avoid empty " +
+        "filler like 'I hope this finds you well', and no fake personalisation. 90 words max. " +
         'Reply with ONLY JSON: {"subject": string, "body": string}.';
       const user =
         `Write a cold email to this person.\n` +
@@ -484,7 +488,7 @@ Deno.serve(async (req) => {
               .slice(0, 5)
               .forEach((e: any) => {
                 people.push({
-                  name: [e.first_name, e.last_name].filter(Boolean).join(" ") || "(name unknown)",
+                  name: [e.first_name, e.last_name].filter(Boolean).join(" "),
                   title: e.position || "",
                   company: co.name || domain,
                   email: e.value,
