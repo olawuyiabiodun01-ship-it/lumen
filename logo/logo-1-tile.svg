@@ -1,0 +1,7 @@
+<svg viewBox="0 0 260 88" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="JayQue logo, tile concept">
+  <rect x="10" y="12" width="64" height="64" rx="16" fill="#0F172A"/>
+  <text x="42" y="54" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="26" font-weight="700" fill="#FFFFFF">JQ</text>
+  <circle cx="65" cy="65" r="4.5" fill="#D4A017"/>
+  <text x="90" y="47" font-family="Inter,system-ui,sans-serif" font-size="24" font-weight="600" fill="#0F172A">JayQue</text>
+  <text x="91" y="65" font-family="Inter,system-ui,sans-serif" font-size="8.5" letter-spacing="2.6" fill="#64748B">DECISION INTELLIGENCE</text>
+</svg>

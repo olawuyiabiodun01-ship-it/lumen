@@ -100,7 +100,7 @@ async function fetchText(url: string, ms = 8000): Promise<string> {
     const t = setTimeout(() => controller.abort(), ms);
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; LumenSDR/1.0)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; ForgeProspect/1.0)" },
     });
     clearTimeout(t);
     if (!res.ok) return "";
@@ -295,7 +295,7 @@ Deno.serve(async (req) => {
         const timer = setTimeout(() => controller.abort(), 12000);
         const siteRes = await fetch(url, {
           signal: controller.signal,
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; LumenSDR/1.0)" },
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; ForgeProspect/1.0)" },
         });
         clearTimeout(timer);
         if (siteRes.ok) siteText = htmlToText(await siteRes.text());
@@ -319,14 +319,15 @@ Deno.serve(async (req) => {
         '      "decision_makers": [string],         // 2–4 job titles to target\n' +
         '      "pain_points": [string],             // 2–3 concrete pains this product solves\n' +
         '      "signals": [string],                 // 1–3 buying signals to look for (hiring, funding, tech used)\n' +
-        '      "sample_email": {"subject": string, "body": string}  // a real, sendable cold email, personalised to the segment, 90 words max\n' +
+        '      "sample_email": {"subject": string, "body": string}  // a warm, courteous, sendable outreach email, personalised to the segment, ~90–110 words\n' +
         "    }\n" +
         "  ]\n" +
         "}\n" +
-        "Produce 3–4 segments, ordered best-fit first. Emails must open with a brief, genuine, " +
-        "courteous greeting (by first name if one is given, otherwise a warm general greeting) " +
-        "before making the point — polite, not abrupt or salesy. Avoid empty filler like " +
-        "'I hope this finds you well', and no placeholders like [Company].";
+        "Produce 3–4 segments, ordered best-fit first. Each email must: open with a genuine, " +
+        "courteous greeting and a brief pleasantry; keep a polite, professional, human tone (never " +
+        "abrupt, pushy or salesy); be specific to the segment's needs; and warmly invite the reader " +
+        `to learn more by visiting the sender's website (${host}), naming the URL. Close with a polite, ` +
+        "friendly sign-off. Avoid empty filler and no placeholders like [Company].";
 
       const user =
         `Company website: ${host}\n\n` +
@@ -352,18 +353,23 @@ Deno.serve(async (req) => {
     if (mode === "write") {
       const p = body.prospect || {};
       const context = body.context || "";
+      const website = (body.website || "").trim();
       const system =
-        "You write short, warm, human B2B cold emails that get replies. Open with a brief, " +
-        "genuine, courteous greeting — by first name if one is given, otherwise a warm general " +
-        "greeting — before making the point. Be polite throughout, never abrupt. Avoid empty " +
-        "filler like 'I hope this finds you well', and no fake personalisation. 90 words max. " +
-        'Reply with ONLY JSON: {"subject": string, "body": string}.';
+        "You write warm, courteous, professional B2B outreach emails that people are glad to " +
+        "receive. Requirements: open with a genuine, respectful greeting (use the first name if " +
+        "given) and a short, sincere pleasantry; keep a friendly, polished, human tone throughout — " +
+        "never abrupt, pushy or salesy; personalise to the recipient's role and company; make one " +
+        "clear, relevant point; and warmly invite them to learn more by visiting the sender's " +
+        "website, naming the URL in the body. Close with a polite, friendly sign-off. Around " +
+        "90–110 words. Avoid empty filler like 'I hope this finds you well' and never use " +
+        'placeholders. Reply with ONLY JSON: {"subject": string, "body": string}.';
       const user =
-        `Write a cold email to this person.\n` +
+        `Write a warm outreach email to this person.\n` +
         `Name: ${p.name || "there"}\n` +
         `Role: ${p.role || "unknown"}\n` +
         `Company: ${p.company || "unknown"}\n` +
-        `What we sell / why relevant: ${context}`;
+        `What we sell / why relevant: ${context}\n` +
+        `Our website (invite them to visit it): ${website || "(not provided — invite them to reply to learn more instead)"}`;
 
       const { parsed, usage } = await claudeJson(system, user, 800);
       if (!parsed) return json({ error: "email generation failed" }, 502);
@@ -565,10 +571,10 @@ Deno.serve(async (req) => {
           from: fromHeader,
           to: [to],
           reply_to: s.reply_to || s.from_email,
-          subject: "Lumen SDR — test email ✓",
+          subject: "ForgeProspect — test email ✓",
           html:
             `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#1a1a1a;line-height:1.55">` +
-            `<p>This is a test from your Lumen SDR setup.</p>` +
+            `<p>This is a test from your ForgeProspect setup.</p>` +
             `<p>If you're reading this, <b>sending works</b>. Real outreach will go out from <b>${s.from_email}</b>, ` +
             `and replies will reach <b>${s.reply_to || s.from_email}</b>.</p></div>`,
         }),

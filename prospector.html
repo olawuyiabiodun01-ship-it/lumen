@@ -3,31 +3,37 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Lumen SDR — AI agents that qualify clients while you sleep</title>
-<meta name="description" content="24/7 AI agent that researches your market, builds buyer segments, finds decision-makers, and writes outreach — while you sleep." />
+<title>ForgeProspect — find and reach the right buyers</title>
+<meta name="description" content="ForgeProspect studies your business, defines your best-fit buyers, finds decision-makers with verified emails, and drafts outreach you review before sending." />
+<link rel="icon" type="image/svg+xml" href="logo/logo-1-tile.svg" />
 <!-- PWA: installable app -->
 <link rel="manifest" href="sdr-manifest.json" />
-<meta name="theme-color" content="#05070a" />
+<meta name="theme-color" content="#070a12" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Lumen SDR" />
+<meta name="apple-mobile-web-app-title" content="ForgeProspect" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
-    --bg: #05070a;
-    --panel: #0b1016;
-    --panel-2: #0f151d;
-    --line: #1b2530;
-    --text: #e7edf3;
-    --muted: #8a97a6;
-    --accent: #34d399;
-    --accent-dim: #0e3a2c;
+    --bg: #070a12;
+    --panel: #0d121c;
+    --panel-2: #111826;
+    --line: #202b3c;
+    --text: #e9edf4;
+    --muted: #8b98aa;
+    --accent: #e0b23c;        /* JayQue gold */
+    --accent-soft: #f2cf7a;
+    --accent-dim: #33280f;    /* dark gold for chips/fills */
+    --navy: #0f172a;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
-    background: radial-gradient(1200px 600px at 50% -100px, #0a1f18 0%, var(--bg) 60%);
+    background:
+      radial-gradient(1100px 520px at 50% -140px, #1a1407 0%, rgba(26,20,7,0) 60%),
+      radial-gradient(900px 500px at 85% 8%, #0d1830 0%, rgba(13,24,48,0) 55%),
+      var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
     min-height: 100vh;
@@ -40,10 +46,15 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 22px 4px; border-bottom: 1px solid var(--line); margin-bottom: 48px;
   }
-  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; }
-  .logo .mark {
-    width: 22px; height: 22px; border-radius: 6px;
-    background: linear-gradient(135deg, var(--accent), #0891b2);
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo-chip {
+    background: #f7f9fc; border-radius: 10px; padding: 6px 11px; display: flex; align-items: center;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.35);
+  }
+  .logo-chip img { height: 30px; display: block; }
+  .product {
+    font-weight: 700; font-size: 18px; letter-spacing: -0.01em;
+    padding-left: 12px; border-left: 1px solid var(--line); color: var(--text);
   }
   .who { font-size: 13px; color: var(--muted); }
   .who button {
@@ -187,6 +198,21 @@
   .reveal-btn:disabled, .write-btn:disabled { opacity: 0.6; cursor: default; }
   .written { margin: 0 4px 8px; }
   .prospects-total { font-size: 12px; color: var(--muted); margin: 4px 0 2px; }
+  .csv-btn {
+    margin-top: 14px; width: 100%; background: transparent; border: 1px dashed var(--line);
+    color: var(--muted); font-size: 13px; font-weight: 600; padding: 10px; border-radius: 10px; cursor: pointer;
+  }
+  .csv-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Outbox dashboard stat cards */
+  .stat-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+  .stat-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 12px; text-align: center; }
+  .stat-card .num { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1; }
+  .stat-card .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 6px; }
+  .stat-card.g .num { color: var(--accent); }
+  @media (max-width: 560px) {
+    .stat-cards { grid-template-columns: repeat(2, 1fr); }
+  }
 
   .err { text-align: center; color: #f87171; margin-top: 24px; font-size: 14px; }
   .locked-note {
@@ -247,22 +273,26 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="logo"><span class="mark"></span> Lumen SDR</div>
+    <div class="brand">
+      <span class="logo-chip"><img src="logo/logo-1-tile.svg" alt="JayQue" /></span>
+      <span class="product">ForgeProspect</span>
+    </div>
     <div style="display:flex;align-items:center;gap:12px">
       <button id="installBtn" class="install-btn" style="display:none">⤓ Install app</button>
       <div class="who" id="who"></div>
     </div>
   </header>
 
-  <h1>24/7 AI agents that <span class="g">qualify</span><br>clients while you sleep</h1>
+  <h1>Turn your website into a<br><span class="g">qualified pipeline</span></h1>
   <p class="sub">
-    In just <b>60 seconds</b>, fully on <b>autopilot</b> — your agent researches the market,
-    sharpens your ICP, builds buyer segments, and writes personalized outreach for each one.
+    ForgeProspect studies your business, defines the buyers most likely to convert,
+    finds real decision-makers with verified emails, and drafts tailored outreach —
+    with <b>you reviewing every step</b> before anything is sent.
   </p>
 
   <!-- Signed-out: magic-link login -->
   <div id="authPanel" class="auth" style="display:none">
-    <div id="authTitle" style="font-size:15px;color:var(--muted)">Sign in to run your agent</div>
+    <div id="authTitle" style="font-size:15px;color:var(--muted)">Sign in to ForgeProspect</div>
     <input id="emailInput" type="email" placeholder="you@company.com" autocomplete="email" />
     <input id="passwordInput" type="password" placeholder="Password" autocomplete="current-password" />
     <button class="btn" id="loginBtn">Sign in</button>
@@ -286,7 +316,7 @@
       <input id="domainInput" type="text" placeholder="e.g. stripe.com" autocomplete="off" />
       <button class="btn" id="runBtn">Analyze &nbsp;→</button>
     </div>
-    <div class="hint">Enter your company's website. The agent reads it and builds your go-to-market plan.</div>
+    <div class="hint">Enter your company's website. ForgeProspect studies it and maps out exactly who to sell to.</div>
 
     <div class="region">
       <label for="regionInput">Where to hunt for leads</label>
@@ -297,9 +327,9 @@
     <div id="progress" style="display:none">
       <ul class="steps" id="steps">
         <li data-step="0"><span class="tick">1</span> Reading your website</li>
-        <li data-step="1"><span class="tick">2</span> Understanding what you sell</li>
-        <li data-step="2"><span class="tick">3</span> Building buyer segments</li>
-        <li data-step="3"><span class="tick">4</span> Writing outreach for each</li>
+        <li data-step="1"><span class="tick">2</span> Understanding your offering</li>
+        <li data-step="2"><span class="tick">3</span> Defining best-fit buyer segments</li>
+        <li data-step="3"><span class="tick">4</span> Drafting tailored outreach</li>
       </ul>
     </div>
 
@@ -422,7 +452,7 @@
       toSignup.style.display = 'none'; el('passwordInput').placeholder = 'New password (6+ characters)';
       el('passwordInput').value = '';
     } else {
-      title.textContent = 'Sign in to run your agent'; btn.textContent = 'Sign in';
+      title.textContent = 'Sign in to ForgeProspect'; btn.textContent = 'Sign in';
       toSignup.textContent = 'First time here? Create your account'; el('passwordInput').placeholder = 'Password';
     }
   }
@@ -580,9 +610,9 @@
 
     html += `
       <div class="locked-note">
-        <b>Next: full autopilot.</b> Prospect-finding is live — reveal emails above, then the last step is
-        auto-sending and following up on a schedule (Resend + pg_cron), so the whole loop runs while you sleep.
-        <br>Ask to turn on Stage 4.
+        <b>From here, review and send.</b> Draft an email for any prospect above, add the ones worth pursuing
+        to your Outbox, then approve them to schedule sending and automatic follow-ups — you stay in control of
+        every message.
       </div>`;
 
     el('results').innerHTML = html;
@@ -645,18 +675,38 @@
             <div class="written" id="written-${index}-${pi}"></div>
           </div>`;
       });
+      h += `<button class="csv-btn" id="csv-${index}">⤓ Export ${people.length} contact${people.length !== 1 ? 's' : ''} to CSV</button>`;
       box.innerHTML = h;
       box.querySelectorAll('.email-out').forEach(s => {
         s.style.cursor = 'pointer';
         s.onclick = () => { navigator.clipboard.writeText(s.dataset.email); const t = s.textContent; s.textContent = t + ' ✓'; setTimeout(() => s.textContent = t, 1200); };
       });
       box.querySelectorAll('.write-btn').forEach(wb => { wb.onclick = () => writeEmail(wb); });
+      const csvBtn = el('csv-' + index);
+      if (csvBtn) csvBtn.onclick = () => exportProspectsCsv(seg.name || 'segment', people);
       btn.textContent = 'Prospects found ✓ — run again for more';
       btn.disabled = false;
     } catch (e) {
       box.innerHTML = `<div class="err" style="text-align:left;margin-top:10px">Network error: ${esc(e.message)}</div>`;
       btn.disabled = false; btn.innerHTML = 'Find real prospects in this segment &nbsp;→';
     }
+  }
+
+  // Special feature: download the found prospects as a CSV for your CRM/outreach tools.
+  function exportProspectsCsv(segName, people) {
+    const cell = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const header = ['Name', 'Title', 'Company', 'Email', 'LinkedIn', 'Confidence', 'Source', 'Segment'];
+    const rows = people.map(p => [
+      p.name, p.title, p.company, p.email, p.linkedin,
+      p.confidence != null ? p.confidence + '%' : '', p.via || '', segName,
+    ].map(cell).join(','));
+    const csv = [header.map(cell).join(','), ...rows].join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `forgeprospect-${segName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   // Stage 3: write an email personalized to ONE found prospect, using their
@@ -682,6 +732,7 @@
           mode: 'write',
           prospect: { name: btn.dataset.name, role: btn.dataset.title, company: btn.dataset.company },
           context,
+          website: (lastResult && lastResult.domain) ? lastResult.domain : '',
         }),
       });
       const data = await res.json();
@@ -802,7 +853,16 @@
     const groups = Object.values(seqs).sort((a, b) => new Date(b[0].created_at) - new Date(a[0].created_at));
     const draftCount = rows.filter(r => r.status === 'draft').length;
 
-    let html = `<div class="ob-toolbar">
+    // Dashboard stat cards — a quick read on the whole pipeline.
+    const n = (s) => rows.filter(r => r.status === s).length;
+    let html = `<div class="stat-cards">
+      <div class="stat-card"><div class="num">${groups.length}</div><div class="lbl">Prospects</div></div>
+      <div class="stat-card"><div class="num">${draftCount}</div><div class="lbl">Drafts</div></div>
+      <div class="stat-card"><div class="num">${n('approved') + n('paused')}</div><div class="lbl">Scheduled</div></div>
+      <div class="stat-card g"><div class="num">${n('sent')}</div><div class="lbl">Sent</div></div>
+      <div class="stat-card g"><div class="num">${n('replied')}</div><div class="lbl">Replied</div></div>
+    </div>`;
+    html += `<div class="ob-toolbar">
       <div class="prospects-total">${groups.length} prospect${groups.length !== 1 ? 's' : ''} · ${draftCount} awaiting approval</div>
       ${draftCount ? `<button class="btn" id="approveAllBtn">Approve &amp; schedule all ${draftCount} drafts →</button>` : ''}
     </div>`;
