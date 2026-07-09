@@ -347,6 +347,12 @@
     <div class="hint">Enter your company's website. ForgeProspect studies it and maps out exactly who to sell to.</div>
 
     <div class="region">
+      <label for="sectorsInput">Sectors &amp; company types to prioritize</label>
+      <input id="sectorsInput" type="text" value="Retail, startups, SMEs" placeholder="e.g. Retail, startups, SMEs, logistics, healthcare" autocomplete="off" />
+      <span class="region-note">Sectors you know fit well. Only genuine fits become decision profiles. Leave blank to let ForgeProspect decide.</span>
+    </div>
+
+    <div class="region">
       <label for="regionInput">Where to hunt for leads</label>
       <input id="regionInput" type="text" value="Africa" placeholder="e.g. Nigeria, Lagos, Kenya, Africa" autocomplete="off" />
       <span class="region-note">Steers live web search toward this place. Leave blank for anywhere.</span>
@@ -563,6 +569,7 @@
   async function analyze() {
     const domain = el('domainInput').value.trim();
     if (!domain) return;
+    const sectors = (el('sectorsInput')?.value || '').trim();
     el('error').textContent = '';
     el('results').innerHTML = '';
     el('runBtn').disabled = true;
@@ -576,7 +583,7 @@
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + session.access_token,
         },
-        body: JSON.stringify({ mode: 'analyze', domain }),
+        body: JSON.stringify({ mode: 'analyze', domain, sectors }),
       });
       const data = await res.json();
       finishSteps();

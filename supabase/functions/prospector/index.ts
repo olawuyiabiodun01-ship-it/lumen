@@ -327,19 +327,27 @@ Deno.serve(async (req) => {
         "    }\n" +
         "  ]\n" +
         "}\n" +
-        "Produce 3–4 decision profiles, ordered best-fit first. Each email must: open with a genuine, " +
-        "courteous greeting and a brief pleasantry; keep a polite, professional, human tone (never " +
-        "abrupt, pushy or salesy); be specific to that profile's needs; and warmly invite the reader " +
+        "Produce 3–4 decision profiles by default, or up to 6 when the user lists focus sectors " +
+        "below — but only include a profile where the fit is genuine (never pad with weak fits). " +
+        "Order best-fit first. Each email must: open with a genuine, courteous greeting and a brief " +
+        "pleasantry; keep a polite, professional, human tone (never abrupt, pushy or salesy); be " +
+        "specific to that profile's needs; and warmly invite the reader " +
         `to learn more by visiting the sender's website (${host}), naming the URL. Close with a polite, ` +
         "friendly sign-off. Avoid empty filler and no placeholders like [Company].";
 
+      const sectors = (body.sectors || "").trim();
       const user =
         `Company website: ${host}\n\n` +
         (siteText
           ? `Website text:\n${siteText}`
-          : `(The site could not be fetched. Infer from the domain name "${host}" and general knowledge.)`);
+          : `(The site could not be fetched. Infer from the domain name "${host}" and general knowledge.)`) +
+        (sectors
+          ? `\n\nThe business has identified these sectors and company types as strong, validated fits. ` +
+            `Prioritise decision profiles across them where the fit is genuine, and you may also add other ` +
+            `clearly good-fit sectors: ${sectors}.`
+          : "");
 
-      const { parsed, usage } = await claudeJson(system, user, 3000);
+      const { parsed, usage } = await claudeJson(system, user, 3600);
       if (!parsed) return json({ error: "analysis failed — try again in a moment" }, 502);
 
       // Non-blocking usage logging, same table as lumen-chat.
